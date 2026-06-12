@@ -1,0 +1,16 @@
+{
+  "name": "claude-quota-guardian",
+  "version": "0.1.0",
+  "description": "Auto-checkpoint and auto-resume for Claude Code sessions approaching usage limits",
+  "license": "MIT",
+  "main": "lib/usage-monitor.js",
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "optionalDependencies": {
+    "node-notifier": "^10.0.1"
+  }
+}
