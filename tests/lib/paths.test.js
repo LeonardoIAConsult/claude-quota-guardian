@@ -52,3 +52,30 @@ test('configPath and logPath live at continuityRoot root', () => {
   if (original === undefined) delete process.env.CQG_HOME;
   else process.env.CQG_HOME = original;
 });
+
+test('homeDir respects CQG_HOME override', () => {
+  const original = process.env.CQG_HOME;
+  process.env.CQG_HOME = 'C:\\fake\\home';
+  assert.strictEqual(paths.homeDir(), 'C:\\fake\\home');
+  if (original === undefined) delete process.env.CQG_HOME;
+  else process.env.CQG_HOME = original;
+});
+
+test('homeDir falls back to os.homedir() when CQG_HOME is unset', () => {
+  const original = process.env.CQG_HOME;
+  delete process.env.CQG_HOME;
+  assert.strictEqual(paths.homeDir(), require('node:os').homedir());
+  if (original !== undefined) process.env.CQG_HOME = original;
+});
+
+test('claudeHome, settingsPath, commandsDir live under homeDir/.claude', () => {
+  const original = process.env.CQG_HOME;
+  process.env.CQG_HOME = 'C:\\fake\\home';
+
+  assert.strictEqual(paths.claudeHome(), path.join('C:\\fake\\home', '.claude'));
+  assert.strictEqual(paths.settingsPath(), path.join('C:\\fake\\home', '.claude', 'settings.json'));
+  assert.strictEqual(paths.commandsDir(), path.join('C:\\fake\\home', '.claude', 'commands'));
+
+  if (original === undefined) delete process.env.CQG_HOME;
+  else process.env.CQG_HOME = original;
+});
