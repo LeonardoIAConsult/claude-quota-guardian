@@ -26,6 +26,9 @@ No automatic relaunching: you decide when to reopen Claude. claude-quota-guardia
                         |
               (you close Claude, usage resets later)
                         |
+              quota-watcher (background) detects the reset
+              -> OS notification: "ready to continue"
+                        |
               You reopen Claude in the same project
                         |
                 SessionStart: resume-context.js
@@ -40,7 +43,34 @@ No automatic relaunching: you decide when to reopen Claude. claude-quota-guardia
 - Node.js >= 18
 - Claude Code (CLI or desktop app) with hook support
 
-## Installation (manual)
+## Quick install
+
+```bash
+git clone <repo-url> ~/.claude/claude-quota-guardian
+cd ~/.claude/claude-quota-guardian
+npm install
+node bin/install.js
+```
+
+This single command:
+
+- Writes `~/.claude/session-continuity/config.json` with defaults (edit it afterwards to set your `plan` — see [docs/configuration.md](docs/configuration.md)).
+- Merges the `PostToolUse` and `SessionStart` hooks into `~/.claude/settings.json` without touching any hooks you already have.
+- Copies `commands/continuity-checkpoint.md` into `~/.claude/commands/`.
+- Registers the background `quota-watcher` to run every `watcherIntervalMinutes` (default 15) via Task Scheduler (Windows), launchd (macOS), or a systemd user timer with a cron fallback (Linux).
+
+If the scheduler step fails (e.g. `schtasks`/`systemctl` unavailable), `install.js` prints a manual fallback command — everything else is still installed.
+
+### Uninstalling
+
+```bash
+node bin/uninstall.js          # removes hooks, command and watcher schedule
+node bin/uninstall.js --purge  # also deletes ~/.claude/session-continuity (checkpoints!)
+```
+
+## Manual installation
+
+If you'd rather wire things up yourself (or `bin/install.js` doesn't support your platform), follow these steps:
 
 1. Clone this repo somewhere stable, e.g. `~/.claude/claude-quota-guardian`:
 
@@ -81,6 +111,8 @@ No automatic relaunching: you decide when to reopen Claude. claude-quota-guardia
    cd ~/.claude/claude-quota-guardian && npm install
    ```
 
+7. (Optional) register the background watcher yourself — see `lib/scheduled-task.js` for the exact per-OS command/file, or just run `node bin/install.js` to do this step only.
+
 ## Testing your install
 
 ```bash
@@ -89,12 +121,13 @@ node scripts/simulate-threshold.js --pct 99.6
 
 This prints a ready-to-run command that feeds a simulated near-limit transcript into `hooks/check-usage.js`, so you can confirm the hook fires and writes `pending.json` without waiting for a real session to fill up.
 
-## Status
+## What's included
 
-This is the **core loop** (checkpoint + resume). A follow-up phase adds:
+- **Core loop** — `hooks/check-usage.js` detects the threshold and triggers `/continuity-checkpoint`; `hooks/resume-context.js` auto-injects the checkpoint on the next `SessionStart`.
+- **Background watcher** — `watcher/quota-watcher.js` notifies you once your plan quota resets, so you know it's safe to reopen Claude.
+- **Installer / uninstaller** — `bin/install.js` / `bin/uninstall.js` (see Quick install above).
 
-- A background watcher that detects when your plan quota resets and notifies you it's safe to reopen Claude.
-- An interactive installer/uninstaller (`bin/install.js` / `bin/uninstall.js`).
+69/69 tests pass on Node 18 and 20 (`npm test`; CI in `.github/workflows/test.yml`).
 
 See `docs/superpowers/specs/2026-06-11-claude-quota-guardian-design.md` for the full design.
 
