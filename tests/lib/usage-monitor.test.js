@@ -70,6 +70,28 @@ test('getPlanUsage returns unavailable when ccusage output has no limit data', (
   const result = getPlanUsage('pro');
   assert.strictEqual(result.available, false);
   assert.strictEqual(result.reason, 'no-limit-data');
+  assert.strictEqual(result.resetAt, 'x');
+});
+
+test('getPlanUsage computes pct from totalTokens when planTokenLimit is set (ccusage >=20)', (t) => {
+  t.mock.method(cp, 'execFileSync', () => JSON.stringify({
+    blocks: [{ endTime: '2026-06-14T08:00:00Z', totalTokens: 9_000_000 }],
+  }));
+
+  const result = getPlanUsage('pro', 10_000_000);
+  assert.strictEqual(result.available, true);
+  assert.strictEqual(result.pct, 90);
+  assert.strictEqual(result.resetAt, '2026-06-14T08:00:00Z');
+});
+
+test('getPlanUsage stays unavailable for ccusage >=20 format without planTokenLimit', (t) => {
+  t.mock.method(cp, 'execFileSync', () => JSON.stringify({
+    blocks: [{ endTime: 'reset', totalTokens: 9_000_000 }],
+  }));
+
+  const result = getPlanUsage('pro');
+  assert.strictEqual(result.available, false);
+  assert.strictEqual(result.reason, 'no-limit-data');
 });
 
 test('getStatus flags context threshold hit when plan is "none"', () => {
