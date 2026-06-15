@@ -38,6 +38,24 @@ function main() {
   const config = loadConfig();
   const status = getStatus({ transcriptPath: input.transcript_path, config });
 
+  // Heartbeat: record live usage every run so the watcher can adapt its polling
+  // cadence (15 -> 3 -> 1 min) even while we are below the checkpoint threshold.
+  const maxPct = Math.max(
+    status.contextPct == null ? 0 : status.contextPct,
+    status.planPct == null ? 0 : status.planPct
+  );
+  try {
+    atomicWriteFileSync(paths.statePath(input.cwd), JSON.stringify({
+      maxPct: Math.round(maxPct * 10) / 10,
+      contextPct: status.contextPct,
+      planPct: status.planPct,
+      sessionId: input.session_id || null,
+      updatedAt: new Date().toISOString(),
+    }, null, 2));
+  } catch {
+    // heartbeat is best-effort: never block the hook on a failed state write
+  }
+
   if (!status.anyAtThreshold) {
     return;
   }

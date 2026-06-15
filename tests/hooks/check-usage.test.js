@@ -13,6 +13,10 @@ function pendingFileFor(home, cwd) {
   return path.join(home, '.claude', 'session-continuity', paths.projectHash(cwd), 'pending.json');
 }
 
+function stateFileFor(home, cwd) {
+  return path.join(home, '.claude', 'session-continuity', paths.projectHash(cwd), 'state.json');
+}
+
 function runHook(input, env) {
   return execFileSync('node', [HOOK], {
     input: JSON.stringify(input),
@@ -29,6 +33,22 @@ test('check-usage no-ops below threshold', () => {
   );
   assert.strictEqual(out.trim(), '');
   assert.strictEqual(fs.existsSync(pendingFileFor(home, 'C:\\fake\\project')), false);
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('check-usage writes a heartbeat state.json below threshold', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-home-'));
+  runHook(
+    { transcript_path: path.join(FIXTURES, 'transcript-50pct.jsonl'), cwd: 'C:\\fake\\project', session_id: 's1' },
+    { CQG_HOME: home }
+  );
+
+  const state = JSON.parse(fs.readFileSync(stateFileFor(home, 'C:\\fake\\project'), 'utf8'));
+  assert.ok(typeof state.maxPct === 'number');
+  assert.ok(state.maxPct > 0 && state.maxPct < 90);
+  assert.strictEqual(state.sessionId, 's1');
+  assert.ok(state.updatedAt);
+
   fs.rmSync(home, { recursive: true, force: true });
 });
 

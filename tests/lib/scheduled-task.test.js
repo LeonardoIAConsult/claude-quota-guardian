@@ -42,6 +42,42 @@ test('describeInstall for linux returns systemd unit files and a cron fallback',
   assert.ok(desc.fallback.cronLine.includes(OPTS.watcherPath));
 });
 
+const ADAPTIVE = {
+  watcherIntervalMinutes: 15,
+  adaptiveWatcher: {
+    enabled: true,
+    baseMinutes: 15,
+    tiers: [{ atPct: 90, minutes: 3 }, { atPct: 98, minutes: 1 }],
+  },
+};
+
+test('pickIntervalMinutes returns base below the lowest tier', () => {
+  assert.strictEqual(scheduledTask.pickIntervalMinutes(50, ADAPTIVE), 15);
+  assert.strictEqual(scheduledTask.pickIntervalMinutes(89.9, ADAPTIVE), 15);
+});
+
+test('pickIntervalMinutes ramps to 3min at 90% and 1min at 98%', () => {
+  assert.strictEqual(scheduledTask.pickIntervalMinutes(90, ADAPTIVE), 3);
+  assert.strictEqual(scheduledTask.pickIntervalMinutes(95, ADAPTIVE), 3);
+  assert.strictEqual(scheduledTask.pickIntervalMinutes(98, ADAPTIVE), 1);
+  assert.strictEqual(scheduledTask.pickIntervalMinutes(99.9, ADAPTIVE), 1);
+});
+
+test('pickIntervalMinutes returns base for null usage', () => {
+  assert.strictEqual(scheduledTask.pickIntervalMinutes(null, ADAPTIVE), 15);
+});
+
+test('describeReschedule for win32 re-creates the task with /f and new interval', () => {
+  const desc = scheduledTask.describeReschedule('win32', { ...OPTS, intervalMinutes: 3 });
+  assert.strictEqual(desc.platform, 'win32');
+  const args = desc.commands[0];
+  assert.strictEqual(args[0], 'schtasks');
+  assert.ok(args.includes('/create'));
+  assert.ok(args.includes('/f'));
+  assert.ok(args.includes('/mo'));
+  assert.ok(args.includes('3'));
+});
+
 test('describeUninstall returns the matching teardown commands per platform', () => {
   assert.deepStrictEqual(
     scheduledTask.describeUninstall('win32').commands[0],

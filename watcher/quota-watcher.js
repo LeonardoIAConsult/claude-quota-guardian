@@ -2,10 +2,14 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { execFileSync } = require('node:child_process');
 const paths = require('../lib/paths');
 const { loadConfig } = require('../lib/config');
 const { atomicWriteFileSync } = require('../lib/atomic-write');
+const scheduledTask = require('../lib/scheduled-task');
 const notify = require('../lib/notify');
+
+const DEFAULT_STALENESS_MS = 20 * 60 * 1000;
 
 function findPendingFiles(root) {
   if (!fs.existsSync(root)) return [];
@@ -61,6 +65,96 @@ function runWatcherOnce({ now = new Date(), config = loadConfig(), notifySend = 
   return { checked: files.length, notified };
 }
 
+// Highest live usage % across all active projects. Heartbeats older than
+// stalenessMs are ignored (idle session = usage not climbing). Returns null when
+// no fresh signal exists, which keeps the watcher at its base interval.
+function readLiveMaxPct(root, { now = new Date(), stalenessMs = DEFAULT_STALENESS_MS } = {}) {
+  if (!fs.existsSync(root)) return null;
+
+  let max = null;
+  for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const stateFile = path.join(root, entry.name, 'state.json');
+    let state;
+    try {
+      state = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+    } catch {
+      continue;
+    }
+    if (typeof state.maxPct !== 'number') continue;
+    if (state.updatedAt) {
+      const age = now.getTime() - new Date(state.updatedAt).getTime();
+      if (!Number.isFinite(age) || age > stalenessMs) continue;
+    }
+    if (max === null || state.maxPct > max) max = state.maxPct;
+  }
+  return max;
+}
+
+function readWatcherInterval() {
+  try {
+    const state = JSON.parse(fs.readFileSync(paths.watcherStatePath(), 'utf8'));
+    return typeof state.intervalMinutes === 'number' ? state.intervalMinutes : null;
+  } catch {
+    return null;
+  }
+}
+
+function defaultApplyReschedule(intervalMinutes, { platform = process.platform } = {}) {
+  const desc = scheduledTask.describeReschedule(platform, {
+    nodePath: process.execPath,
+    watcherPath: __filename,
+    intervalMinutes,
+    logPath: paths.logPath(),
+  });
+  for (const file of desc.files || []) {
+    const target = file.path.startsWith('~/')
+      ? path.join(paths.homeDir(), file.path.slice(2))
+      : file.path;
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, file.content);
+  }
+  for (const [cmd, ...args] of desc.commands) {
+    execFileSync(cmd, args, { stdio: 'ignore' });
+  }
+}
+
+// Compare desired cadence (from live usage) against the last-applied interval and
+// re-register the OS schedule only when the tier actually changes. Reschedule
+// side effects are injected so this stays unit-testable.
+function reconcileInterval({
+  now = new Date(),
+  config = loadConfig(),
+  applyReschedule = defaultApplyReschedule,
+  readMaxPct = readLiveMaxPct,
+  getCurrentInterval = readWatcherInterval,
+} = {}) {
+  const adaptive = config.adaptiveWatcher || {};
+  if (!adaptive.enabled) return { changed: false, reason: 'disabled' };
+
+  const maxPct = readMaxPct(paths.continuityRoot(), { now });
+  const desired = scheduledTask.pickIntervalMinutes(maxPct, config);
+  const current = getCurrentInterval();
+
+  if (current === desired) {
+    return { changed: false, intervalMinutes: desired, maxPct };
+  }
+
+  try {
+    applyReschedule(desired);
+  } catch (err) {
+    return { changed: false, error: err.message, desired, maxPct };
+  }
+
+  atomicWriteFileSync(paths.watcherStatePath(), JSON.stringify({
+    intervalMinutes: desired,
+    maxPct,
+    updatedAt: now.toISOString(),
+  }, null, 2));
+
+  return { changed: true, from: current, to: desired, maxPct };
+}
+
 function appendLog(message) {
   const line = `[${new Date().toISOString()}] ${message}\n`;
   try {
@@ -73,11 +167,19 @@ function appendLog(message) {
 
 function main() {
   const summary = runWatcherOnce();
-  appendLog(`checked=${summary.checked} notified=${summary.notified}`);
+  let intervalNote = '';
+  try {
+    const result = reconcileInterval();
+    if (result.changed) intervalNote = ` interval=${result.from}->${result.to}min (max=${result.maxPct}%)`;
+    else if (result.error) intervalNote = ` interval-reschedule-failed=${result.error}`;
+  } catch (err) {
+    intervalNote = ` interval-error=${err.message}`;
+  }
+  appendLog(`checked=${summary.checked} notified=${summary.notified}${intervalNote}`);
 }
 
 if (require.main === module) {
   main();
 }
 
-module.exports = { findPendingFiles, shouldNotifyReset, processPendingFile, runWatcherOnce, appendLog, main };
+module.exports = { findPendingFiles, shouldNotifyReset, processPendingFile, runWatcherOnce, readLiveMaxPct, readWatcherInterval, reconcileInterval, appendLog, main };

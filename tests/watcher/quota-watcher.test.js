@@ -167,6 +167,98 @@ test('runWatcherOnce respects notifications.enabled=false', () => {
   delete process.env.CQG_HOME;
 });
 
+function writeState(home, hash, state) {
+  const dir = path.join(home, '.claude', 'session-continuity', hash);
+  fs.mkdirSync(dir, { recursive: true });
+  atomicWriteFileSync(path.join(dir, 'state.json'), JSON.stringify(state));
+}
+
+const ADAPTIVE_CFG = {
+  watcherIntervalMinutes: 15,
+  adaptiveWatcher: { enabled: true, baseMinutes: 15, tiers: [{ atPct: 90, minutes: 3 }, { atPct: 98, minutes: 1 }] },
+};
+
+test('readLiveMaxPct returns highest fresh maxPct across projects', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-watcher-'));
+  process.env.CQG_HOME = home;
+  const root = path.join(home, '.claude', 'session-continuity');
+
+  const now = new Date();
+  writeState(home, 'p1', { maxPct: 72.5, updatedAt: now.toISOString() });
+  writeState(home, 'p2', { maxPct: 94.1, updatedAt: now.toISOString() });
+
+  assert.strictEqual(watcher.readLiveMaxPct(root, { now }), 94.1);
+
+  fs.rmSync(home, { recursive: true, force: true });
+  delete process.env.CQG_HOME;
+});
+
+test('readLiveMaxPct ignores stale heartbeats', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-watcher-'));
+  const root = path.join(home, '.claude', 'session-continuity');
+  const now = new Date();
+
+  writeState(home, 'p1', { maxPct: 99, updatedAt: new Date(now.getTime() - 60 * 60 * 1000).toISOString() });
+  writeState(home, 'p2', { maxPct: 40, updatedAt: now.toISOString() });
+
+  assert.strictEqual(watcher.readLiveMaxPct(root, { now, stalenessMs: 20 * 60 * 1000 }), 40);
+
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('reconcileInterval reschedules when tier changes and persists state', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-watcher-'));
+  process.env.CQG_HOME = home;
+  const now = new Date();
+
+  const calls = [];
+  const result = watcher.reconcileInterval({
+    now,
+    config: ADAPTIVE_CFG,
+    readMaxPct: () => 98,
+    getCurrentInterval: () => 15,
+    applyReschedule: (mins) => calls.push(mins),
+  });
+
+  assert.strictEqual(result.changed, true);
+  assert.strictEqual(result.to, 1);
+  assert.deepStrictEqual(calls, [1]);
+
+  const persisted = JSON.parse(fs.readFileSync(path.join(home, '.claude', 'session-continuity', 'watcher-state.json'), 'utf8'));
+  assert.strictEqual(persisted.intervalMinutes, 1);
+
+  fs.rmSync(home, { recursive: true, force: true });
+  delete process.env.CQG_HOME;
+});
+
+test('reconcileInterval is a no-op when interval already matches', () => {
+  const calls = [];
+  const result = watcher.reconcileInterval({
+    config: ADAPTIVE_CFG,
+    readMaxPct: () => 50,
+    getCurrentInterval: () => 15,
+    applyReschedule: (mins) => calls.push(mins),
+  });
+
+  assert.strictEqual(result.changed, false);
+  assert.strictEqual(result.intervalMinutes, 15);
+  assert.strictEqual(calls.length, 0);
+});
+
+test('reconcileInterval is disabled when adaptiveWatcher.enabled is false', () => {
+  const calls = [];
+  const result = watcher.reconcileInterval({
+    config: { adaptiveWatcher: { enabled: false } },
+    readMaxPct: () => 99,
+    getCurrentInterval: () => 15,
+    applyReschedule: (mins) => calls.push(mins),
+  });
+
+  assert.strictEqual(result.changed, false);
+  assert.strictEqual(result.reason, 'disabled');
+  assert.strictEqual(calls.length, 0);
+});
+
 test('runWatcherOnce returns zero when continuityRoot does not exist', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-watcher-'));
   process.env.CQG_HOME = home;
