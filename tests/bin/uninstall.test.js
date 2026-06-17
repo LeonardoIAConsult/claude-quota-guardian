@@ -40,6 +40,47 @@ test('uninstallHooks is a no-op when settings.json does not exist', () => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+test('uninstallStatusLine removes a statusLine claimed by installStatusLine', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-uninstall-'));
+  const settingsFilePath = path.join(dir, 'settings.json');
+
+  install.installStatusLine({ settingsFilePath, repoRoot: REPO_ROOT });
+  const result = uninstall.uninstallStatusLine({ settingsFilePath, repoRoot: REPO_ROOT });
+
+  assert.strictEqual(result.removed, true);
+  const onDisk = JSON.parse(fs.readFileSync(settingsFilePath, 'utf8'));
+  assert.strictEqual(onDisk.statusLine, undefined);
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('uninstallStatusLine leaves a statusLine owned by something else untouched', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-uninstall-'));
+  const settingsFilePath = path.join(dir, 'settings.json');
+  fs.writeFileSync(settingsFilePath, JSON.stringify({
+    statusLine: { type: 'command', command: 'powershell -File caveman-statusline.ps1' },
+  }));
+
+  const result = uninstall.uninstallStatusLine({ settingsFilePath, repoRoot: REPO_ROOT });
+
+  assert.strictEqual(result.removed, false);
+  const onDisk = JSON.parse(fs.readFileSync(settingsFilePath, 'utf8'));
+  assert.strictEqual(onDisk.statusLine.command, 'powershell -File caveman-statusline.ps1');
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('uninstallStatusLine is a no-op when settings.json does not exist', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-uninstall-'));
+  const settingsFilePath = path.join(dir, 'settings.json');
+
+  const result = uninstall.uninstallStatusLine({ settingsFilePath, repoRoot: REPO_ROOT });
+
+  assert.strictEqual(result.removed, false);
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
 test('uninstallCommand removes continuity-checkpoint.md when present', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-uninstall-'));
   const commandsDirPath = path.join(dir, 'commands');
@@ -127,6 +168,7 @@ test('run orchestrates hooks, command, schedule and optional purge', () => {
   });
 
   assert.strictEqual(result.settings.hooks, undefined);
+  assert.strictEqual(result.statusLine.removed, true);
   assert.strictEqual(result.schedule.success, true);
   assert.strictEqual(result.purged, paths.continuityRoot());
   assert.strictEqual(fs.existsSync(paths.continuityRoot()), false);

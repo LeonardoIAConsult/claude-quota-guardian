@@ -9,7 +9,7 @@ claude-quota-guardian reads `~/.claude/session-continuity/config.json`. All fiel
 | `thresholds.plan` | `0.995` | Fraction (0-1) of the plan's quota that triggers a checkpoint. |
 | `thresholds.desktopWarn` | `0.99` | Fraction (0-1) of context-window usage that triggers a notify-only warning on the Claude Code Desktop surface (see below) — Desktop is never hard-blocked, even past `thresholds.context`. |
 | `planTokenLimit` | `null` | Tokens in your plan's 5h window. Needed for plan-% on `ccusage` >=20 (see below). `null` → plan-% disabled, context-% still runs. |
-| `planCheckIntervalToolCalls` | `5` | Reserved for the Phase 2 watcher; not yet used by the core hooks. |
+| `planCheckIntervalToolCalls` | `5` | Throttles the `ccusage` subprocess (1-2s typical, shells out via `npx`): only re-runs it once every N `PostToolUse`/`Stop` checks, reusing the last reading from `state.json` in between. The real account-wide `rate_limits` signal (see below) is cached separately and is never throttled by this setting. |
 | `watcherIntervalMinutes` | `15` | Base watcher polling cadence. `adaptiveWatcher.tiers` shortens this as usage climbs (default: 3min at 90%, 1min at 98%). |
 | `notifications.enabled` | `true` | When `false`, the watcher and hooks still write state/pending files but skip OS notifications. |
 

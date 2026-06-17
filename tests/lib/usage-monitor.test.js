@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const path = require('node:path');
 const cp = require('node:child_process');
-const { getContextUsage, getPlanUsage, getStatus, getEntrypoint } = require('../../lib/usage-monitor');
+const { getContextUsage, getPlanUsage, getThrottledPlanUsage, getStatus, getEntrypoint } = require('../../lib/usage-monitor');
 
 const FIXTURES = path.join(__dirname, '..', 'fixtures');
 
@@ -171,6 +171,76 @@ test('getStatus ignores cachedRateLimit when lower than ccusage plan%', (t) => {
   });
   assert.strictEqual(status.planPct, 99.9);
   assert.strictEqual(status.planResetAt, 'ccusage-reset');
+});
+
+test('getThrottledPlanUsage calls ccusage when there is no cached reading yet', (t) => {
+  let calls = 0;
+  t.mock.method(cp, 'execFileSync', () => {
+    calls += 1;
+    return JSON.stringify({ blocks: [{ endTime: 'reset', tokenLimitStatus: { percentUsed: 55 } }] });
+  });
+
+  const result = getThrottledPlanUsage({ planType: 'pro', intervalToolCalls: 5, counter: 1, cachedPlan: null });
+  assert.strictEqual(calls, 1);
+  assert.strictEqual(result.available, true);
+  assert.strictEqual(result.pct, 55);
+  assert.strictEqual(result.due, true);
+});
+
+test('getThrottledPlanUsage skips ccusage and reuses cachedPlan while under the interval', (t) => {
+  let calls = 0;
+  t.mock.method(cp, 'execFileSync', () => {
+    calls += 1;
+    return JSON.stringify({ blocks: [{ endTime: 'reset', tokenLimitStatus: { percentUsed: 99 } }] });
+  });
+
+  const cachedPlan = { available: true, pct: 30, resetAt: 'old-reset' };
+  const result = getThrottledPlanUsage({ planType: 'pro', intervalToolCalls: 5, counter: 3, cachedPlan });
+
+  assert.strictEqual(calls, 0);
+  assert.strictEqual(result.available, true);
+  assert.strictEqual(result.pct, 30);
+  assert.strictEqual(result.resetAt, 'old-reset');
+  assert.strictEqual(result.due, false);
+});
+
+test('getThrottledPlanUsage refreshes via ccusage once counter reaches the interval', (t) => {
+  let calls = 0;
+  t.mock.method(cp, 'execFileSync', () => {
+    calls += 1;
+    return JSON.stringify({ blocks: [{ endTime: 'fresh-reset', tokenLimitStatus: { percentUsed: 77 } }] });
+  });
+
+  const cachedPlan = { available: true, pct: 30, resetAt: 'old-reset' };
+  const result = getThrottledPlanUsage({ planType: 'pro', intervalToolCalls: 5, counter: 5, cachedPlan });
+
+  assert.strictEqual(calls, 1);
+  assert.strictEqual(result.pct, 77);
+  assert.strictEqual(result.resetAt, 'fresh-reset');
+  assert.strictEqual(result.due, true);
+});
+
+test('getThrottledPlanUsage falls back to cachedPlan when a due ccusage call fails', (t) => {
+  t.mock.method(cp, 'execFileSync', () => {
+    throw new Error('not found');
+  });
+
+  const cachedPlan = { available: true, pct: 30, resetAt: 'old-reset' };
+  const result = getThrottledPlanUsage({ planType: 'pro', intervalToolCalls: 5, counter: 5, cachedPlan });
+
+  assert.strictEqual(result.available, true);
+  assert.strictEqual(result.pct, 30);
+  assert.strictEqual(result.due, true);
+});
+
+test('getThrottledPlanUsage returns unavailable for plan "none" without touching ccusage', (t) => {
+  let calls = 0;
+  t.mock.method(cp, 'execFileSync', () => { calls += 1; return '{}'; });
+
+  const result = getThrottledPlanUsage({ planType: 'none', intervalToolCalls: 5, counter: 99, cachedPlan: null });
+  assert.strictEqual(calls, 0);
+  assert.strictEqual(result.available, false);
+  assert.strictEqual(result.due, false);
 });
 
 test('getStatus reports "both" when context and plan both hit', (t) => {

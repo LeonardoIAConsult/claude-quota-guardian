@@ -7,7 +7,7 @@ const paths = require('../lib/paths');
 const { atomicWriteFileSync } = require('../lib/atomic-write');
 const { removeHooks } = require('../lib/hooks-merge');
 const scheduledTask = require('../lib/scheduled-task');
-const { buildHookAdditions } = require('./install');
+const { buildHookAdditions, statusLineCommand } = require('./install');
 
 function readJsonOrEmpty(filePath) {
   try {
@@ -26,6 +26,24 @@ function uninstallHooks({ settingsFilePath, repoRoot }) {
 
   atomicWriteFileSync(settingsFilePath, JSON.stringify(result, null, 2));
   return result;
+}
+
+// Only release the statusLine slot when it's still exactly the command
+// install.js wrote -- if the user has since pointed it elsewhere (combined
+// it with another plugin's badge, etc.), leave it alone rather than
+// silently deleting whatever is there now.
+function uninstallStatusLine({ settingsFilePath, repoRoot }) {
+  if (!fs.existsSync(settingsFilePath)) return { removed: false };
+
+  const existing = readJsonOrEmpty(settingsFilePath);
+  if (!existing.statusLine || existing.statusLine.command !== statusLineCommand(repoRoot)) {
+    return { removed: false };
+  }
+
+  const result = { ...existing };
+  delete result.statusLine;
+  atomicWriteFileSync(settingsFilePath, JSON.stringify(result, null, 2));
+  return { removed: true };
 }
 
 function uninstallCommand({ commandsDirPath }) {
@@ -66,10 +84,12 @@ function purgeData() {
 
 function run({ repoRoot, platform = process.platform, execFn = execFileSync, purge = false, log = console.log } = {}) {
   const settings = uninstallHooks({ settingsFilePath: paths.settingsPath(), repoRoot });
+  const statusLine = uninstallStatusLine({ settingsFilePath: paths.settingsPath(), repoRoot });
   const commandFile = uninstallCommand({ commandsDirPath: paths.commandsDir() });
   const schedule = uninstallSchedule({ platform, execFn });
 
   log(`hooks removed from: ${paths.settingsPath()}`);
+  log(statusLine.removed ? 'statusLine unregistered' : 'statusLine left untouched (not owned by claude-quota-guardian, or already removed)');
   log(commandFile ? `command removed: ${commandFile}` : 'command not found (already removed)');
   if (schedule.success) {
     log('watcher schedule unregistered');
@@ -83,11 +103,11 @@ function run({ repoRoot, platform = process.platform, execFn = execFileSync, pur
     log(`removed continuity data: ${purged}`);
   }
 
-  return { settings, commandFile, schedule, purged };
+  return { settings, statusLine, commandFile, schedule, purged };
 }
 
 if (require.main === module) {
   run({ repoRoot: path.join(__dirname, '..'), purge: process.argv.includes('--purge') });
 }
 
-module.exports = { uninstallHooks, uninstallCommand, uninstallSchedule, purgeData, expandHome, run };
+module.exports = { uninstallHooks, uninstallStatusLine, uninstallCommand, uninstallSchedule, purgeData, expandHome, run };

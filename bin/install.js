@@ -64,9 +64,13 @@ function installHooks({ settingsFilePath, repoRoot }) {
 // claim it when nothing else already has -- never silently overwrite an
 // existing statusLine, matching the "preserve user's existing settings"
 // guarantee the rest of this installer follows.
+function statusLineCommand(repoRoot) {
+  return `node "${path.join(repoRoot, 'hooks', 'statusline.js')}"`;
+}
+
 function installStatusLine({ settingsFilePath, repoRoot }) {
   const existing = readJsonOrEmpty(settingsFilePath);
-  const command = `node "${path.join(repoRoot, 'hooks', 'statusline.js')}"`;
+  const command = statusLineCommand(repoRoot);
 
   if (existing.statusLine && existing.statusLine.command && existing.statusLine.command !== command) {
     return { settings: existing, claimed: false, existingCommand: existing.statusLine.command };
@@ -147,6 +151,7 @@ module.exports = {
   installConfig,
   buildHookAdditions,
   installHooks,
+  statusLineCommand,
   installStatusLine,
   installCommand,
   installSchedule,
