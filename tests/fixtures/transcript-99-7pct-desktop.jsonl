@@ -1,0 +1,1 @@
+{"type":"assistant","entrypoint":"claude-desktop","message":{"id":"msg_1","role":"assistant","model":"claude-sonnet-4-6","usage":{"input_tokens":170260,"cache_read_input_tokens":9200,"cache_creation_input_tokens":0,"output_tokens":300}}}

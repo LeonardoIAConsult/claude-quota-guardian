@@ -5,8 +5,9 @@ claude-quota-guardian reads `~/.claude/session-continuity/config.json`. All fiel
 | Field | Default | Description |
 |---|---|---|
 | `plan` | `"none"` | `"none"` \| `"pro"` \| `"max5x"` \| `"max20x"`. `"none"` disables plan-quota checks (context-window monitoring still runs). Any other value enables `ccusage`-based plan checks. |
-| `thresholds.context` | `0.995` | Fraction (0-1) of the model's context window that triggers a checkpoint. |
+| `thresholds.context` | `0.996` | Fraction (0-1) of the model's context window that hard-blocks tools on the CLI/IDE surface. |
 | `thresholds.plan` | `0.995` | Fraction (0-1) of the plan's quota that triggers a checkpoint. |
+| `thresholds.desktopWarn` | `0.99` | Fraction (0-1) of context-window usage that triggers a notify-only warning on the Claude Code Desktop surface (see below) — Desktop is never hard-blocked, even past `thresholds.context`. |
 | `planTokenLimit` | `null` | Tokens in your plan's 5h window. Needed for plan-% on `ccusage` >=20 (see below). `null` → plan-% disabled, context-% still runs. |
 | `planCheckIntervalToolCalls` | `5` | Reserved for the Phase 2 watcher; not yet used by the core hooks. |
 | `watcherIntervalMinutes` | `15` | Base watcher polling cadence. `adaptiveWatcher.tiers` shortens this as usage climbs (default: 3min at 90%, 1min at 98%). |
@@ -25,9 +26,16 @@ Four hooks, all registered globally in `~/.claude/settings.json` (apply to every
 
 Once a checkpoint is pending, `check-usage.js`/`heartbeat-stop.js` re-notify every 5 minutes (instead of a single one-shot toast) until `/continuity-checkpoint` runs and marks it consumed.
 
+**Desktop vs CLI/IDE behavior:** every Claude Code transcript line is stamped with an `entrypoint` field (`"cli"`, `"claude-desktop"`, ...) — `lib/usage-monitor.js`'s `getEntrypoint` reads it back out of the transcript. Claude Code Desktop has no "end the turn now" affordance the way a terminal does (the real fix there is opening a fresh conversation), so `lib/threshold-check.js` branches on it:
+
+- **CLI/IDE** (`entrypoint !== "claude-desktop"`, including unrecognized future surfaces): unchanged hard-block flow above — `thresholds.context` (99.6%) creates a pending checkpoint and `enforce-checkpoint.js` really blocks tools until `/continuity-checkpoint` runs.
+- **Claude Code Desktop** (`entrypoint === "claude-desktop"`): notify-only. At `thresholds.desktopWarn` (99%) it sends a re-notified-every-5-min OS notification telling you to open a new conversation. It never creates `pending.json` and is never hard-blocked, even past 99.6% — `enforce-checkpoint.js` has nothing to block on for that session.
+
+Both surfaces' heartbeats land in the same `state.json` (`entrypoint`, `lastDesktopWarnAt` fields included) — the watcher's adaptive polling reads `maxPct` the same way regardless of surface.
+
 **Context limit caveat:** `lib/plan-limits.json`'s `context.default` (180000) is a conservative estimate, not Claude Code's exact internal usable budget — Claude Code reserves some of the model's raw context window for system prompt/tool schemas/autocompact margin, so its own "% used" indicator and this tool's `contextPct` will not match exactly. The default is set below the model's raw 200k window specifically to trigger before Claude Code's own autocompact silently truncates the transcript (which would otherwise reset `contextPct` downward before the threshold is ever crossed). If you still see the threshold crossed only after Code's own UI already shows a higher %, lower `thresholds.context` and/or `plan-limits.json`'s `context.default` further.
 
-**Scope caveat:** all of the above only covers Claude Code (CLI, IDE extension, terminal) — hooks have no reach into the separate Claude.ai desktop or browser apps, which have no local hook mechanism.
+**Scope caveat:** all of the above covers every Claude Code surface — CLI, IDE extension, terminal, **and the Claude Code Desktop app** (Mac/Windows), since Desktop shares the same `~/.claude/settings.json`/hooks/engine as the CLI (confirmed via the transcript `entrypoint` field, see above). It does **not** reach the separate Claude.ai consumer chat app (web or desktop, the one with "Projects"/uploaded documents instead of a project folder) — that product has no local hook mechanism at all, regardless of surface.
 
 ## Plan-quota checks (`ccusage`)
 

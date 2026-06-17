@@ -63,6 +63,29 @@ test('heartbeat-stop creates a pending checkpoint at threshold but never emits d
   fs.rmSync(home, { recursive: true, force: true });
 });
 
+test('heartbeat-stop warns but never pends for claude-desktop, even above the CLI hard-block threshold', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-home-'));
+  fs.mkdirSync(path.join(home, '.claude', 'session-continuity'), { recursive: true });
+  fs.writeFileSync(
+    path.join(home, '.claude', 'session-continuity', 'config.json'),
+    JSON.stringify({ plan: 'none' })
+  );
+
+  const out = runHook(
+    { transcript_path: path.join(FIXTURES, 'transcript-99-7pct-desktop.jsonl'), cwd: 'C:\\fake\\project', session_id: 's1' },
+    { CQG_HOME: home }
+  );
+
+  assert.strictEqual(out.trim(), '');
+  assert.strictEqual(fs.existsSync(pendingFileFor(home, 'C:\\fake\\project')), false);
+
+  const state = JSON.parse(fs.readFileSync(stateFileFor(home, 'C:\\fake\\project'), 'utf8'));
+  assert.strictEqual(state.entrypoint, 'claude-desktop');
+  assert.ok(state.lastDesktopWarnAt);
+
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
 test('heartbeat-stop exits 0 with bad stdin', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-home-'));
   const out = execFileSync('node', [HOOK], {

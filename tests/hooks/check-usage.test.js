@@ -125,6 +125,49 @@ test('check-usage keeps writing the heartbeat even while a pending checkpoint is
   fs.rmSync(home, { recursive: true, force: true });
 });
 
+test('check-usage warns but never blocks or pends for claude-desktop, even above the CLI hard-block threshold', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-home-'));
+  fs.mkdirSync(path.join(home, '.claude', 'session-continuity'), { recursive: true });
+  fs.writeFileSync(
+    path.join(home, '.claude', 'session-continuity', 'config.json'),
+    JSON.stringify({ plan: 'none' })
+  );
+
+  const out = runHook(
+    { transcript_path: path.join(FIXTURES, 'transcript-99-7pct-desktop.jsonl'), cwd: 'C:\\fake\\project', session_id: 's1' },
+    { CQG_HOME: home }
+  );
+
+  // Desktop has no "end the turn now" affordance like a terminal -- it's
+  // notify-only, never a hard block, even past the CLI's 99.6% threshold.
+  assert.strictEqual(out.trim(), '');
+  assert.strictEqual(fs.existsSync(pendingFileFor(home, 'C:\\fake\\project')), false);
+
+  const state = JSON.parse(fs.readFileSync(stateFileFor(home, 'C:\\fake\\project'), 'utf8'));
+  assert.strictEqual(state.entrypoint, 'claude-desktop');
+  assert.ok(state.lastDesktopWarnAt);
+
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('check-usage desktop warn threshold (99%) is independent of and lower than the CLI hard-block threshold (99.6%)', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-home-'));
+
+  runHook(
+    { transcript_path: path.join(FIXTURES, 'transcript-99-2pct-desktop.jsonl'), cwd: 'C:\\fake\\project', session_id: 's1' },
+    { CQG_HOME: home }
+  );
+
+  // 99.2% is below the CLI's 99.6% threshold but above Desktop's 99% warn
+  // threshold -- the warn marker firing here proves the lower threshold is
+  // actually live for this entrypoint, not just inherited from the CLI path.
+  const state = JSON.parse(fs.readFileSync(stateFileFor(home, 'C:\\fake\\project'), 'utf8'));
+  assert.ok(state.lastDesktopWarnAt);
+  assert.strictEqual(fs.existsSync(pendingFileFor(home, 'C:\\fake\\project')), false);
+
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
 test('check-usage exits 0 with bad stdin', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-home-'));
   const out = execFileSync('node', [HOOK], {

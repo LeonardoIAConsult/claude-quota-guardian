@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const path = require('node:path');
 const cp = require('node:child_process');
-const { getContextUsage, getPlanUsage, getStatus } = require('../../lib/usage-monitor');
+const { getContextUsage, getPlanUsage, getStatus, getEntrypoint } = require('../../lib/usage-monitor');
 
 const FIXTURES = path.join(__dirname, '..', 'fixtures');
 
@@ -111,6 +111,26 @@ test('getStatus reports no threshold hit below limits', () => {
   });
   assert.strictEqual(status.anyAtThreshold, false);
   assert.strictEqual(status.triggeredBy, null);
+});
+
+test('getEntrypoint reads "cli" from a CLI transcript', () => {
+  const result = getEntrypoint(path.join(FIXTURES, 'transcript-50pct.jsonl'));
+  assert.strictEqual(result, 'cli');
+});
+
+test('getEntrypoint reads "claude-desktop" from a Desktop transcript', () => {
+  const result = getEntrypoint(path.join(FIXTURES, 'transcript-99-2pct-desktop.jsonl'));
+  assert.strictEqual(result, 'claude-desktop');
+});
+
+test('getEntrypoint returns null when no entrypoint field is present', () => {
+  const result = getEntrypoint(path.join(FIXTURES, 'transcript-no-usage.jsonl'));
+  assert.strictEqual(result, null);
+});
+
+test('getEntrypoint returns null for missing file', () => {
+  const result = getEntrypoint(path.join(FIXTURES, 'does-not-exist.jsonl'));
+  assert.strictEqual(result, null);
 });
 
 test('getStatus reports "both" when context and plan both hit', (t) => {
