@@ -56,6 +56,7 @@ This single command:
 
 - Writes `~/.claude/session-continuity/config.json` with defaults (edit it afterwards to set your `plan` — see [docs/configuration.md](docs/configuration.md)).
 - Merges the `PostToolUse` and `SessionStart` hooks into `~/.claude/settings.json` without touching any hooks you already have.
+- Claims the `statusLine` slot for real account-wide quota tracking (`rate_limits`), unless something else already owns it — see [docs/configuration.md](docs/configuration.md).
 - Copies `commands/continuity-checkpoint.md` into `~/.claude/commands/`.
 - Registers the background `quota-watcher` to run every `watcherIntervalMinutes` (default 15) via Task Scheduler (Windows), launchd (macOS), or a systemd user timer with a cron fallback (Linux).
 
@@ -127,7 +128,7 @@ This prints a ready-to-run command that feeds a simulated near-limit transcript 
 - **Background watcher** — `watcher/quota-watcher.js` notifies you once your plan quota resets, so you know it's safe to reopen Claude.
 - **Installer / uninstaller** — `bin/install.js` / `bin/uninstall.js` (see Quick install above).
 
-69/69 tests pass on Node 18 and 20 (`npm test`; CI in `.github/workflows/test.yml`).
+111/111 tests pass on Node 18 and 20 (`npm test`; CI in `.github/workflows/test.yml`).
 
 See `docs/superpowers/specs/2026-06-11-claude-quota-guardian-design.md` for the full design.
 

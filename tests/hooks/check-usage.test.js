@@ -168,6 +168,66 @@ test('check-usage desktop warn threshold (99%) is independent of and lower than 
   fs.rmSync(home, { recursive: true, force: true });
 });
 
+test('check-usage hard-blocks on CLI from a cached rate_limit signal alone, even with low local context', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-home-'));
+  fs.mkdirSync(path.join(home, '.claude', 'session-continuity'), { recursive: true });
+  fs.writeFileSync(
+    path.join(home, '.claude', 'session-continuity', 'config.json'),
+    JSON.stringify({ plan: 'none' })
+  );
+
+  // hooks/statusline.js caches rate_limits here on its own cadence -- seed it
+  // directly to simulate that having already happened before this hook runs.
+  const statePath = stateFileFor(home, 'C:\\fake\\project');
+  fs.mkdirSync(path.dirname(statePath), { recursive: true });
+  fs.writeFileSync(statePath, JSON.stringify({ rateLimitPct: 99.8, rateLimitResetAt: '2026-06-20T00:00:00.000Z' }));
+
+  const out = runHook(
+    { transcript_path: path.join(FIXTURES, 'transcript-50pct.jsonl'), cwd: 'C:\\fake\\project', session_id: 's1' },
+    { CQG_HOME: home }
+  );
+
+  const decision = JSON.parse(out);
+  assert.strictEqual(decision.decision, 'block');
+
+  const pending = JSON.parse(fs.readFileSync(pendingFileFor(home, 'C:\\fake\\project'), 'utf8'));
+  assert.strictEqual(pending.triggeredBy, 'plan');
+  assert.strictEqual(pending.pctAtTrigger.plan, 99.8);
+
+  // The heartbeat rewrite must carry the cached rate-limit fields forward
+  // instead of clobbering them -- they're only ever refreshed by statusline.js.
+  const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+  assert.strictEqual(state.rateLimitPct, 99.8);
+  assert.strictEqual(state.rateLimitResetAt, '2026-06-20T00:00:00.000Z');
+
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('check-usage warns about account-wide plan quota on claude-desktop, driven by a cached rate_limit signal alone', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-home-'));
+
+  const statePath = stateFileFor(home, 'C:\\fake\\project');
+  fs.mkdirSync(path.dirname(statePath), { recursive: true });
+  fs.writeFileSync(statePath, JSON.stringify({ rateLimitPct: 99.9, rateLimitResetAt: '2026-06-20T00:00:00.000Z' }));
+
+  const out = runHook(
+    { transcript_path: path.join(FIXTURES, 'transcript-50pct-desktop.jsonl'), cwd: 'C:\\fake\\project', session_id: 's1' },
+    { CQG_HOME: home }
+  );
+
+  assert.strictEqual(out.trim(), '');
+  assert.strictEqual(fs.existsSync(pendingFileFor(home, 'C:\\fake\\project')), false);
+
+  const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+  // Local context is only ~50% here -- lastDesktopWarnAt (context warn) must
+  // stay unset while lastDesktopPlanWarnAt (account-quota warn) fires, proving
+  // the two Desktop warnings are independently triggered.
+  assert.strictEqual(state.lastDesktopWarnAt, null);
+  assert.ok(state.lastDesktopPlanWarnAt);
+
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
 test('check-usage exits 0 with bad stdin', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-home-'));
   const out = execFileSync('node', [HOOK], {

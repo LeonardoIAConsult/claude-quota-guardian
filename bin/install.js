@@ -56,6 +56,28 @@ function installHooks({ settingsFilePath, repoRoot }) {
   return merged;
 }
 
+// Claude Code's rate_limits (real, account-wide 5h/7d Pro/Max quota) is only
+// ever delivered via the statusLine payload -- not via any PreToolUse/
+// PostToolUse/Stop hook. But settings.json only supports ONE statusLine
+// command (unlike hooks, which support arrays), so claiming this slot can
+// collide with another plugin's status line (e.g. a badge script). Only
+// claim it when nothing else already has -- never silently overwrite an
+// existing statusLine, matching the "preserve user's existing settings"
+// guarantee the rest of this installer follows.
+function installStatusLine({ settingsFilePath, repoRoot }) {
+  const existing = readJsonOrEmpty(settingsFilePath);
+  const command = `node "${path.join(repoRoot, 'hooks', 'statusline.js')}"`;
+
+  if (existing.statusLine && existing.statusLine.command && existing.statusLine.command !== command) {
+    return { settings: existing, claimed: false, existingCommand: existing.statusLine.command };
+  }
+
+  const merged = { ...existing, statusLine: { type: 'command', command } };
+  fs.mkdirSync(path.dirname(settingsFilePath), { recursive: true });
+  atomicWriteFileSync(settingsFilePath, JSON.stringify(merged, null, 2));
+  return { settings: merged, claimed: true };
+}
+
 function installCommand({ repoRoot, commandsDirPath }) {
   const src = path.join(repoRoot, 'commands', 'continuity-checkpoint.md');
   const dest = path.join(commandsDirPath, 'continuity-checkpoint.md');
@@ -95,12 +117,18 @@ function installSchedule({ platform, repoRoot, execFn = execFileSync }) {
 
 function run({ repoRoot, platform = process.platform, execFn = execFileSync, log = console.log } = {}) {
   const config = installConfig({ configFilePath: paths.configPath() });
-  const settings = installHooks({ settingsFilePath: paths.settingsPath(), repoRoot });
+  installHooks({ settingsFilePath: paths.settingsPath(), repoRoot });
+  const statusLine = installStatusLine({ settingsFilePath: paths.settingsPath(), repoRoot });
   const commandFile = installCommand({ repoRoot, commandsDirPath: paths.commandsDir() });
   const schedule = installSchedule({ platform, repoRoot, execFn });
 
   log(`config: ${paths.configPath()}`);
   log(`hooks merged into: ${paths.settingsPath()}`);
+  if (statusLine.claimed) {
+    log('statusLine registered (enables real account-wide rate_limits tracking)');
+  } else {
+    log(`statusLine NOT registered -- already set to: ${statusLine.existingCommand}. Combine manually, see docs/configuration.md`);
+  }
   log(`command installed: ${commandFile}`);
   if (schedule.success) {
     log('watcher schedule registered');
@@ -108,7 +136,7 @@ function run({ repoRoot, platform = process.platform, execFn = execFileSync, log
     log(`watcher schedule NOT registered (${schedule.error}). Manual setup: see docs/configuration.md`);
   }
 
-  return { config, settings, commandFile, schedule };
+  return { config, settings: statusLine.settings, commandFile, schedule };
 }
 
 if (require.main === module) {
@@ -119,6 +147,7 @@ module.exports = {
   installConfig,
   buildHookAdditions,
   installHooks,
+  installStatusLine,
   installCommand,
   installSchedule,
   expandHome,

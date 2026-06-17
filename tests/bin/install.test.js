@@ -75,6 +75,53 @@ test('installHooks preserves unrelated existing hooks and is idempotent', () => 
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+test('installStatusLine claims an empty statusLine slot', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-install-'));
+  const settingsFilePath = path.join(dir, 'settings.json');
+
+  const result = install.installStatusLine({ settingsFilePath, repoRoot: REPO_ROOT });
+
+  assert.strictEqual(result.claimed, true);
+  assert.match(result.settings.statusLine.command, /statusline\.js"$/);
+
+  const onDisk = JSON.parse(fs.readFileSync(settingsFilePath, 'utf8'));
+  assert.strictEqual(onDisk.statusLine.command, result.settings.statusLine.command);
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('installStatusLine is idempotent and preserves unrelated settings', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-install-'));
+  const settingsFilePath = path.join(dir, 'settings.json');
+  fs.writeFileSync(settingsFilePath, JSON.stringify({ someOtherKey: true }));
+
+  install.installStatusLine({ settingsFilePath, repoRoot: REPO_ROOT });
+  const second = install.installStatusLine({ settingsFilePath, repoRoot: REPO_ROOT });
+
+  assert.strictEqual(second.claimed, true);
+  assert.strictEqual(second.settings.someOtherKey, true);
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('installStatusLine does not overwrite a statusLine already claimed by something else', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-install-'));
+  const settingsFilePath = path.join(dir, 'settings.json');
+  fs.writeFileSync(settingsFilePath, JSON.stringify({
+    statusLine: { type: 'command', command: 'powershell -File caveman-statusline.ps1' },
+  }));
+
+  const result = install.installStatusLine({ settingsFilePath, repoRoot: REPO_ROOT });
+
+  assert.strictEqual(result.claimed, false);
+  assert.strictEqual(result.existingCommand, 'powershell -File caveman-statusline.ps1');
+
+  const onDisk = JSON.parse(fs.readFileSync(settingsFilePath, 'utf8'));
+  assert.strictEqual(onDisk.statusLine.command, 'powershell -File caveman-statusline.ps1');
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
 test('installCommand copies continuity-checkpoint.md into commandsDir', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-install-'));
   const commandsDirPath = path.join(dir, 'commands');

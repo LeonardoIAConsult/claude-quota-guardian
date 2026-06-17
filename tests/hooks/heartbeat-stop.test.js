@@ -86,6 +86,32 @@ test('heartbeat-stop warns but never pends for claude-desktop, even above the CL
   fs.rmSync(home, { recursive: true, force: true });
 });
 
+test('heartbeat-stop creates a pending checkpoint from a cached rate_limit signal alone, even with low local context', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-home-'));
+  fs.mkdirSync(path.join(home, '.claude', 'session-continuity'), { recursive: true });
+  fs.writeFileSync(
+    path.join(home, '.claude', 'session-continuity', 'config.json'),
+    JSON.stringify({ plan: 'none' })
+  );
+
+  const statePath = stateFileFor(home, 'C:\\fake\\project');
+  fs.mkdirSync(path.dirname(statePath), { recursive: true });
+  fs.writeFileSync(statePath, JSON.stringify({ rateLimitPct: 99.8, rateLimitResetAt: '2026-06-20T00:00:00.000Z' }));
+
+  const out = runHook(
+    { transcript_path: path.join(FIXTURES, 'transcript-50pct.jsonl'), cwd: 'C:\\fake\\project', session_id: 's1' },
+    { CQG_HOME: home }
+  );
+
+  assert.strictEqual(out.trim(), '');
+
+  const pending = JSON.parse(fs.readFileSync(pendingFileFor(home, 'C:\\fake\\project'), 'utf8'));
+  assert.strictEqual(pending.consumed, false);
+  assert.strictEqual(pending.triggeredBy, 'plan');
+
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
 test('heartbeat-stop exits 0 with bad stdin', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-home-'));
   const out = execFileSync('node', [HOOK], {

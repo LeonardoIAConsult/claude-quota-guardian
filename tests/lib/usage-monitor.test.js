@@ -133,6 +133,46 @@ test('getEntrypoint returns null for missing file', () => {
   assert.strictEqual(result, null);
 });
 
+test('getStatus uses cachedRateLimit as plan% when plan is "none" (no ccusage needed)', () => {
+  const status = getStatus({
+    transcriptPath: path.join(FIXTURES, 'transcript-50pct.jsonl'),
+    config: { plan: 'none', thresholds: { context: 0.995, plan: 0.995 } },
+    cachedRateLimit: { pct: 99.7, resetAt: '2026-06-20T00:00:00.000Z' },
+  });
+  assert.strictEqual(status.anyAtThreshold, true);
+  assert.strictEqual(status.triggeredBy, 'plan');
+  assert.strictEqual(status.planPct, 99.7);
+  assert.strictEqual(status.planResetAt, '2026-06-20T00:00:00.000Z');
+});
+
+test('getStatus prefers cachedRateLimit over ccusage plan% only when it is higher', (t) => {
+  t.mock.method(cp, 'execFileSync', () => JSON.stringify({
+    blocks: [{ endTime: 'ccusage-reset', tokenLimitStatus: { percentUsed: 40 } }],
+  }));
+
+  const status = getStatus({
+    transcriptPath: path.join(FIXTURES, 'transcript-50pct.jsonl'),
+    config: { plan: 'pro', thresholds: { context: 0.995, plan: 0.995 } },
+    cachedRateLimit: { pct: 99.8, resetAt: 'rate-limit-reset' },
+  });
+  assert.strictEqual(status.planPct, 99.8);
+  assert.strictEqual(status.planResetAt, 'rate-limit-reset');
+});
+
+test('getStatus ignores cachedRateLimit when lower than ccusage plan%', (t) => {
+  t.mock.method(cp, 'execFileSync', () => JSON.stringify({
+    blocks: [{ endTime: 'ccusage-reset', tokenLimitStatus: { percentUsed: 99.9 } }],
+  }));
+
+  const status = getStatus({
+    transcriptPath: path.join(FIXTURES, 'transcript-50pct.jsonl'),
+    config: { plan: 'pro', thresholds: { context: 0.995, plan: 0.995 } },
+    cachedRateLimit: { pct: 10, resetAt: 'rate-limit-reset' },
+  });
+  assert.strictEqual(status.planPct, 99.9);
+  assert.strictEqual(status.planResetAt, 'ccusage-reset');
+});
+
 test('getStatus reports "both" when context and plan both hit', (t) => {
   t.mock.method(cp, 'execFileSync', () => JSON.stringify({
     blocks: [{ endTime: 'reset-time', tokenLimitStatus: { percentUsed: 99.7 } }],
