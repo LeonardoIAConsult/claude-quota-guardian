@@ -78,18 +78,50 @@ test('check-usage writes pending.json and blocks at threshold', () => {
   fs.rmSync(home, { recursive: true, force: true });
 });
 
-test('check-usage is idempotent when pending already exists', () => {
+test('check-usage does not overwrite an existing pending with a new trigger', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-home-'));
   const pendingFile = pendingFileFor(home, 'C:\\fake\\project');
   fs.mkdirSync(path.dirname(pendingFile), { recursive: true });
-  fs.writeFileSync(pendingFile, JSON.stringify({ consumed: false }));
+  fs.writeFileSync(pendingFile, JSON.stringify({
+    consumed: false,
+    triggeredAt: '2020-01-01T00:00:00.000Z',
+    pctAtTrigger: { context: 99.5, plan: null },
+    lastNotifiedAt: new Date().toISOString(), // just notified -> suppress re-notify this run
+  }));
 
   const out = runHook(
     { transcript_path: path.join(FIXTURES, 'transcript-99-6pct.jsonl'), cwd: 'C:\\fake\\project', session_id: 's1' },
     { CQG_HOME: home }
   );
 
-  assert.strictEqual(out.trim(), '');
+  // Still re-emits the block decision every call -- this is the fix: a soft
+  // block must not go silent forever after the first (easily-missed) toast.
+  const decision = JSON.parse(out);
+  assert.strictEqual(decision.decision, 'block');
+
+  const pending = JSON.parse(fs.readFileSync(pendingFile, 'utf8'));
+  assert.strictEqual(pending.triggeredAt, '2020-01-01T00:00:00.000Z'); // original trigger preserved
+
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('check-usage keeps writing the heartbeat even while a pending checkpoint is outstanding', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-home-'));
+  const pendingFile = pendingFileFor(home, 'C:\\fake\\project');
+  fs.mkdirSync(path.dirname(pendingFile), { recursive: true });
+  fs.writeFileSync(pendingFile, JSON.stringify({ consumed: false, pctAtTrigger: { context: 99.5, plan: null } }));
+
+  runHook(
+    { transcript_path: path.join(FIXTURES, 'transcript-99-6pct.jsonl'), cwd: 'C:\\fake\\project', session_id: 's1' },
+    { CQG_HOME: home }
+  );
+
+  // This is the core fix: previously the idempotency guard returned before
+  // ever touching state.json, so the watcher's adaptive polling starved
+  // after the first trigger. Now the heartbeat keeps flowing regardless.
+  const state = JSON.parse(fs.readFileSync(stateFileFor(home, 'C:\\fake\\project'), 'utf8'));
+  assert.ok(state.maxPct >= 99.5);
+
   fs.rmSync(home, { recursive: true, force: true });
 });
 

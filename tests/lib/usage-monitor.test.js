@@ -9,8 +9,8 @@ const FIXTURES = path.join(__dirname, '..', 'fixtures');
 test('getContextUsage computes pct from latest assistant usage', () => {
   const result = getContextUsage(path.join(FIXTURES, 'transcript-50pct.jsonl'));
   assert.strictEqual(result.pct, 50);
-  assert.strictEqual(result.used, 100000);
-  assert.strictEqual(result.limit, 200000);
+  assert.strictEqual(result.used, 90000);
+  assert.strictEqual(result.limit, 180000);
   assert.strictEqual(result.model, 'claude-sonnet-4-6');
 });
 

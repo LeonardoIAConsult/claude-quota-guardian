@@ -40,7 +40,9 @@ function installConfig({ configFilePath, overrides = {} }) {
 
 function buildHookAdditions(repoRoot) {
   return [
+    { event: 'PreToolUse', matcher: '*', command: `node "${path.join(repoRoot, 'hooks', 'enforce-checkpoint.js')}"` },
     { event: 'PostToolUse', matcher: '*', command: `node "${path.join(repoRoot, 'hooks', 'check-usage.js')}"` },
+    { event: 'Stop', matcher: '*', command: `node "${path.join(repoRoot, 'hooks', 'heartbeat-stop.js')}"` },
     { event: 'SessionStart', matcher: '*', command: `node "${path.join(repoRoot, 'hooks', 'resume-context.js')}"` },
   ];
 }

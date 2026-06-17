@@ -38,15 +38,19 @@ test('installConfig preserves existing overrides and is idempotent', () => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test('installHooks adds PostToolUse and SessionStart hooks with absolute paths', () => {
+test('installHooks adds PreToolUse, PostToolUse, Stop and SessionStart hooks with absolute paths', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-install-'));
   const settingsFilePath = path.join(dir, 'settings.json');
 
   const result = install.installHooks({ settingsFilePath, repoRoot: REPO_ROOT });
 
+  const preToolUse = result.hooks.PreToolUse[0].hooks[0].command;
   const postToolUse = result.hooks.PostToolUse[0].hooks[0].command;
+  const stop = result.hooks.Stop[0].hooks[0].command;
   const sessionStart = result.hooks.SessionStart[0].hooks[0].command;
+  assert.match(preToolUse, /enforce-checkpoint\.js"$/);
   assert.match(postToolUse, /check-usage\.js"$/);
+  assert.match(stop, /heartbeat-stop\.js"$/);
   assert.match(sessionStart, /resume-context\.js"$/);
 
   fs.rmSync(dir, { recursive: true, force: true });
