@@ -63,7 +63,7 @@ test('heartbeat-stop creates a pending checkpoint at threshold but never emits d
   fs.rmSync(home, { recursive: true, force: true });
 });
 
-test('heartbeat-stop warns but never pends for claude-desktop, even above the CLI hard-block threshold', () => {
+test('heartbeat-stop never pends for a non-CLI surface, even above the hard-block threshold', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-home-'));
   fs.mkdirSync(path.join(home, '.claude', 'session-continuity'), { recursive: true });
   fs.writeFileSync(
@@ -81,7 +81,7 @@ test('heartbeat-stop warns but never pends for claude-desktop, even above the CL
 
   const state = JSON.parse(fs.readFileSync(stateFileFor(home, 'C:\\fake\\project'), 'utf8'));
   assert.strictEqual(state.entrypoint, 'claude-desktop');
-  assert.ok(state.lastDesktopWarnAt);
+  assert.ok(state.maxPct >= 99.5); // heartbeat still flows for the watcher
 
   fs.rmSync(home, { recursive: true, force: true });
 });

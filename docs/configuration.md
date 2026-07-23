@@ -5,9 +5,9 @@ claude-quota-guardian reads `~/.claude/session-continuity/config.json`. All fiel
 | Field | Default | Description |
 |---|---|---|
 | `plan` | `"none"` | `"none"` \| `"pro"` \| `"max5x"` \| `"max20x"`. `"none"` disables plan-quota checks (context-window monitoring still runs). Any other value enables `ccusage`-based plan checks. |
-| `thresholds.context` | `0.996` | Fraction (0-1) of the model's context window that hard-blocks tools on the CLI/IDE surface. |
+| `thresholds.context` | `0.996` | Fraction (0-1) of the model's context window that hard-blocks tools on the terminal (CLI) surface. |
 | `thresholds.plan` | `0.995` | Fraction (0-1) of the plan's quota that triggers a checkpoint. |
-| `thresholds.desktopWarn` | `0.99` | Fraction (0-1) of context-window usage that triggers a notify-only warning on the Claude Code Desktop surface (see below) — Desktop is never hard-blocked, even past `thresholds.context`. |
+| `providers.codex` | `{ enabled: true, warnPct: 90, stalenessMinutes: 20, renotifyMinutes: 15 }` | Notify-only monitoring of OpenAI Codex CLI sessions (see [Other AI providers](#other-ai-providers-notify-only) below). `warnPct` is a percentage (0-100). |
 | `planTokenLimit` | `null` | Tokens in your plan's 5h window. Needed for plan-% on `ccusage` >=20 (see below). `null` → plan-% disabled, context-% still runs. |
 | `planCheckIntervalToolCalls` | `5` | Throttles the `ccusage` subprocess (1-2s typical, shells out via `npx`): only re-runs it once every N `PostToolUse`/`Stop` checks, reusing the last reading from `state.json` in between. The real account-wide `rate_limits` signal (see below) is cached separately and is never throttled by this setting. |
 | `watcherIntervalMinutes` | `15` | Base watcher polling cadence. `adaptiveWatcher.tiers` shortens this as usage climbs (default: 3min at 90%, 1min at 98%). |
@@ -27,16 +27,22 @@ Five hooks, all registered globally in `~/.claude/settings.json` (apply to every
 
 Once a checkpoint is pending, `check-usage.js`/`heartbeat-stop.js` re-notify every 5 minutes (instead of a single one-shot toast) until `/continuity-checkpoint` runs and marks it consumed.
 
-**Desktop vs CLI/IDE behavior:** every Claude Code transcript line is stamped with an `entrypoint` field (`"cli"`, `"claude-desktop"`, ...) — `lib/usage-monitor.js`'s `getEntrypoint` reads it back out of the transcript. Claude Code Desktop has no "end the turn now" affordance the way a terminal does (the real fix there is opening a fresh conversation), so `lib/threshold-check.js` branches on it:
+**Terminal-only enforcement:** every Claude Code transcript line is stamped with an `entrypoint` field (`"cli"`, `"claude-desktop"`, ...) — `lib/usage-monitor.js`'s `getEntrypoint` reads it back out of the transcript, and `lib/threshold-check.js` enforces on exactly one value:
 
-- **CLI/IDE** (`entrypoint !== "claude-desktop"`, including unrecognized future surfaces): unchanged hard-block flow above — `thresholds.context` (99.6%) creates a pending checkpoint and `enforce-checkpoint.js` really blocks tools until `/continuity-checkpoint` runs.
-- **Claude Code Desktop** (`entrypoint === "claude-desktop"`): notify-only. At `thresholds.desktopWarn` (99%) it sends a re-notified-every-5-min OS notification telling you to open a new conversation. It never creates `pending.json` and is never hard-blocked, even past 99.6% — `enforce-checkpoint.js` has nothing to block on for that session.
-
-Both surfaces' heartbeats land in the same `state.json` (`entrypoint`, `lastDesktopWarnAt` fields included) — the watcher's adaptive polling reads `maxPct` the same way regardless of surface.
+- **Terminal** (`entrypoint === "cli"`): full hard-block flow above — `thresholds.context` (99.6%) creates a pending checkpoint and `enforce-checkpoint.js` really blocks tools until `/continuity-checkpoint` runs.
+- **Everything else** (Claude Code Desktop, unknown future surfaces, or a transcript with no `entrypoint` stamp): heartbeat-only. `state.json` keeps updating for the watcher's adaptive polling, but no `pending.json`, no block, no notifications — those surfaces have no reliable "end the turn now" affordance, so Guardian stays out of the way there.
 
 **Context limit caveat:** `lib/plan-limits.json`'s `context.default` (180000) is a conservative estimate, not Claude Code's exact internal usable budget — Claude Code reserves some of the model's raw context window for system prompt/tool schemas/autocompact margin, so its own "% used" indicator and this tool's `contextPct` will not match exactly. The default is set below the model's raw 200k window specifically to trigger before Claude Code's own autocompact silently truncates the transcript (which would otherwise reset `contextPct` downward before the threshold is ever crossed). If you still see the threshold crossed only after Code's own UI already shows a higher %, lower `thresholds.context` and/or `plan-limits.json`'s `context.default` further.
 
-**Scope caveat:** all of the above covers every Claude Code surface — CLI, IDE extension, terminal, **and the Claude Code Desktop app** (Mac/Windows), since Desktop shares the same `~/.claude/settings.json`/hooks/engine as the CLI (confirmed via the transcript `entrypoint` field, see above). It does **not** reach the separate Claude.ai consumer chat app (web or desktop, the one with "Projects"/uploaded documents instead of a project folder) — that product has no local hook mechanism at all, regardless of surface.
+**Scope caveat:** enforcement covers the Claude Code terminal surface only (see above). Other Claude Code surfaces (Desktop app, IDE variants) still heartbeat into `state.json` because they share the same `~/.claude/settings.json`/hooks/engine, but are never blocked. The separate Claude.ai consumer chat app (web or desktop, the one with "Projects"/uploaded documents instead of a project folder) has no local hook mechanism at all and is fully out of reach.
+
+## Other AI providers (notify-only)
+
+Non-Claude AI CLIs have no hook system, so the full loop (detect → block → checkpoint → auto-resume) is impossible there. For them Guardian offers a **notify-only tier**, polled by the background watcher on its normal cadence, configured under `providers`:
+
+- **OpenAI Codex CLI** (`providers.codex`): `lib/adapters/codex.js` reads Codex's own session rollouts (`~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`, read-only — Guardian never writes into `~/.codex`). Each fresh session (file modified within `stalenessMinutes`) yields its real context usage (`last_token_usage.total_tokens` vs `model_context_window` from the last `token_count` event) and, when present, the account `rate_limits.used_percent`. When the max of those crosses `warnPct` (default 90), the watcher sends an OS notification telling you to ask Codex for a summary/checkpoint before the cutoff, re-notifying at most every `renotifyMinutes`. Session state lands in `session-continuity/codex-<hash>/state.json` in the same `maxPct`/`updatedAt` shape as Claude project heartbeats, so the watcher's adaptive polling (15→3→1 min) reacts to a filling Codex session exactly like a filling Claude session. Override the Codex data dir with `CQG_CODEX_HOME` (defaults to `~/.codex`).
+
+To add another provider later: write an adapter that returns `{ projectPath, contextPct, rateLimitPct, maxPct, updatedAt }` per fresh session from that provider's local session logs, and wire it into `pollProviders` in `watcher/quota-watcher.js`.
 
 ## Real account-wide quota (`rate_limits` via the status line)
 

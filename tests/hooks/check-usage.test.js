@@ -125,7 +125,7 @@ test('check-usage keeps writing the heartbeat even while a pending checkpoint is
   fs.rmSync(home, { recursive: true, force: true });
 });
 
-test('check-usage warns but never blocks or pends for claude-desktop, even above the CLI hard-block threshold', () => {
+test('check-usage never blocks or pends for a non-CLI surface, even above the hard-block threshold', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-home-'));
   fs.mkdirSync(path.join(home, '.claude', 'session-continuity'), { recursive: true });
   fs.writeFileSync(
@@ -138,32 +138,14 @@ test('check-usage warns but never blocks or pends for claude-desktop, even above
     { CQG_HOME: home }
   );
 
-  // Desktop has no "end the turn now" affordance like a terminal -- it's
-  // notify-only, never a hard block, even past the CLI's 99.6% threshold.
+  // Enforcement is terminal-only: any entrypoint other than "cli" gets a
+  // heartbeat and nothing else, even past the 99.6% threshold.
   assert.strictEqual(out.trim(), '');
   assert.strictEqual(fs.existsSync(pendingFileFor(home, 'C:\\fake\\project')), false);
 
   const state = JSON.parse(fs.readFileSync(stateFileFor(home, 'C:\\fake\\project'), 'utf8'));
   assert.strictEqual(state.entrypoint, 'claude-desktop');
-  assert.ok(state.lastDesktopWarnAt);
-
-  fs.rmSync(home, { recursive: true, force: true });
-});
-
-test('check-usage desktop warn threshold (99%) is independent of and lower than the CLI hard-block threshold (99.6%)', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-home-'));
-
-  runHook(
-    { transcript_path: path.join(FIXTURES, 'transcript-99-2pct-desktop.jsonl'), cwd: 'C:\\fake\\project', session_id: 's1' },
-    { CQG_HOME: home }
-  );
-
-  // 99.2% is below the CLI's 99.6% threshold but above Desktop's 99% warn
-  // threshold -- the warn marker firing here proves the lower threshold is
-  // actually live for this entrypoint, not just inherited from the CLI path.
-  const state = JSON.parse(fs.readFileSync(stateFileFor(home, 'C:\\fake\\project'), 'utf8'));
-  assert.ok(state.lastDesktopWarnAt);
-  assert.strictEqual(fs.existsSync(pendingFileFor(home, 'C:\\fake\\project')), false);
+  assert.ok(state.maxPct >= 99.5); // heartbeat still flows for the watcher
 
   fs.rmSync(home, { recursive: true, force: true });
 });
@@ -203,7 +185,7 @@ test('check-usage hard-blocks on CLI from a cached rate_limit signal alone, even
   fs.rmSync(home, { recursive: true, force: true });
 });
 
-test('check-usage warns about account-wide plan quota on claude-desktop, driven by a cached rate_limit signal alone', () => {
+test('check-usage stays silent on a non-CLI surface even when the cached rate_limit signal is over threshold', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-home-'));
 
   const statePath = stateFileFor(home, 'C:\\fake\\project');
@@ -215,15 +197,13 @@ test('check-usage warns about account-wide plan quota on claude-desktop, driven 
     { CQG_HOME: home }
   );
 
+  // Same account-wide signal that hard-blocks on CLI (test above) -- but this
+  // transcript is claude-desktop, so no block, no pending, heartbeat only.
   assert.strictEqual(out.trim(), '');
   assert.strictEqual(fs.existsSync(pendingFileFor(home, 'C:\\fake\\project')), false);
 
   const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
-  // Local context is only ~50% here -- lastDesktopWarnAt (context warn) must
-  // stay unset while lastDesktopPlanWarnAt (account-quota warn) fires, proving
-  // the two Desktop warnings are independently triggered.
-  assert.strictEqual(state.lastDesktopWarnAt, null);
-  assert.ok(state.lastDesktopPlanWarnAt);
+  assert.strictEqual(state.rateLimitPct, 99.9); // cached signal carried forward
 
   fs.rmSync(home, { recursive: true, force: true });
 });

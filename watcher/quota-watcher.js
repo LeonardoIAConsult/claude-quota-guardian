@@ -8,6 +8,7 @@ const { loadConfig } = require('../lib/config');
 const { atomicWriteFileSync } = require('../lib/atomic-write');
 const scheduledTask = require('../lib/scheduled-task');
 const notify = require('../lib/notify');
+const codexAdapter = require('../lib/adapters/codex');
 
 const DEFAULT_STALENESS_MS = 20 * 60 * 1000;
 
@@ -63,6 +64,69 @@ function runWatcherOnce({ now = new Date(), config = loadConfig(), notifySend = 
   }
 
   return { checked: files.length, notified };
+}
+
+// Poll non-Claude providers (notify-only tier: no hooks there, so no blocking
+// and no auto-resume). Each fresh session gets a `<provider>-<hash>/state.json`
+// in the same maxPct/updatedAt shape as project heartbeats, so readLiveMaxPct
+// and the adaptive cadence react to these sessions with zero extra wiring.
+// updatedAt is the session file's mtime, not the poll time -- an idle session
+// goes stale on its own.
+function pollProviders({ now = new Date(), config = loadConfig(), notifySend = notify.send } = {}) {
+  const result = { sessions: 0, notified: 0 };
+  const pc = (config.providers && config.providers.codex) || {};
+  if (!pc.enabled) return result;
+
+  const send = (config.notifications && config.notifications.enabled) ? notifySend : () => {};
+  const warnPct = pc.warnPct != null ? pc.warnPct : 90;
+  const renotifyMs = (pc.renotifyMinutes != null ? pc.renotifyMinutes : 15) * 60 * 1000;
+  const stalenessMs = (pc.stalenessMinutes != null ? pc.stalenessMinutes : 20) * 60 * 1000;
+
+  let sessions;
+  try {
+    sessions = codexAdapter.readCodexUsage({ root: paths.codexHome(), now, stalenessMs });
+  } catch {
+    return result;
+  }
+
+  for (const s of sessions) {
+    result.sessions += 1;
+    const stateFile = path.join(paths.providerStateDir('codex', s.file), 'state.json');
+
+    let prev;
+    try {
+      prev = JSON.parse(fs.readFileSync(stateFile, 'utf8')) || {};
+    } catch {
+      prev = {};
+    }
+
+    let lastWarnedAt = prev.lastWarnedAt || null;
+    if (s.maxPct >= warnPct) {
+      const last = lastWarnedAt ? new Date(lastWarnedAt).getTime() : 0;
+      if (now.getTime() - last >= renotifyMs) {
+        lastWarnedAt = now.toISOString();
+        send(
+          'Claude Quota Guardian',
+          `Codex al ${s.maxPct}% en "${s.projectName || 'sesión'}" — pedile un resumen/checkpoint del avance antes del corte.`
+        );
+        result.notified += 1;
+      }
+    }
+
+    atomicWriteFileSync(stateFile, JSON.stringify({
+      provider: 'codex',
+      maxPct: s.maxPct,
+      contextPct: s.contextPct,
+      rateLimitPct: s.rateLimitPct,
+      projectPath: s.projectPath,
+      sessionId: s.sessionId,
+      sessionFile: s.file,
+      lastWarnedAt,
+      updatedAt: s.updatedAt,
+    }, null, 2));
+  }
+
+  return result;
 }
 
 // Highest live usage % across all active projects. Heartbeats older than
@@ -167,6 +231,13 @@ function appendLog(message) {
 
 function main() {
   const summary = runWatcherOnce();
+  let providerNote = '';
+  try {
+    const providers = pollProviders();
+    if (providers.sessions > 0) providerNote = ` codex-sessions=${providers.sessions} codex-notified=${providers.notified}`;
+  } catch (err) {
+    providerNote = ` provider-error=${err.message}`;
+  }
   let intervalNote = '';
   try {
     const result = reconcileInterval();
@@ -175,11 +246,11 @@ function main() {
   } catch (err) {
     intervalNote = ` interval-error=${err.message}`;
   }
-  appendLog(`checked=${summary.checked} notified=${summary.notified}${intervalNote}`);
+  appendLog(`checked=${summary.checked} notified=${summary.notified}${providerNote}${intervalNote}`);
 }
 
 if (require.main === module) {
   main();
 }
 
-module.exports = { findPendingFiles, shouldNotifyReset, processPendingFile, runWatcherOnce, readLiveMaxPct, readWatcherInterval, reconcileInterval, appendLog, main };
+module.exports = { findPendingFiles, shouldNotifyReset, processPendingFile, runWatcherOnce, pollProviders, readLiveMaxPct, readWatcherInterval, reconcileInterval, appendLog, main };

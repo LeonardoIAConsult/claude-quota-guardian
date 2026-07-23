@@ -269,3 +269,104 @@ test('runWatcherOnce returns zero when continuityRoot does not exist', () => {
   fs.rmSync(home, { recursive: true, force: true });
   delete process.env.CQG_HOME;
 });
+
+test('pollProviders writes codex session state and notifies over warnPct with throttle', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-watcher-'));
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-codexhome-'));
+  process.env.CQG_HOME = home;
+  process.env.CQG_CODEX_HOME = codexHome;
+
+  const now = new Date();
+  const y = String(now.getFullYear());
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  const sessionsDir = path.join(codexHome, 'sessions', y, m, d);
+  fs.mkdirSync(sessionsDir, { recursive: true });
+
+  const rollout = path.join(sessionsDir, 'rollout-now.jsonl');
+  fs.writeFileSync(rollout, [
+    JSON.stringify({ type: 'session_meta', payload: { session_id: 's9', cwd: 'C:\proj\demo' } }),
+    JSON.stringify({ type: 'event_msg', payload: { type: 'token_count', info: { last_token_usage: { total_tokens: 95 }, model_context_window: 100 }, rate_limits: null } }),
+  ].join('\n') + '\n');
+
+  const config = {
+    notifications: { enabled: true },
+    providers: { codex: { enabled: true, warnPct: 90, stalenessMinutes: 20, renotifyMinutes: 15 } },
+  };
+
+  const sent = [];
+  const first = watcher.pollProviders({ now, config, notifySend: (t, msg) => sent.push(msg) });
+  assert.strictEqual(first.sessions, 1);
+  assert.strictEqual(first.notified, 1);
+  assert.match(sent[0], /95%/);
+  assert.match(sent[0], /demo/);
+
+  // Same poll again within renotifyMinutes: state refreshed, no second toast.
+  const second = watcher.pollProviders({ now, config, notifySend: (t, msg) => sent.push(msg) });
+  assert.strictEqual(second.notified, 0);
+  assert.strictEqual(sent.length, 1);
+
+  // State lands in the shared shape the adaptive cadence reads.
+  const root = path.join(home, '.claude', 'session-continuity');
+  const dirs = fs.readdirSync(root).filter((n) => n.startsWith('codex-'));
+  assert.strictEqual(dirs.length, 1);
+  const state = JSON.parse(fs.readFileSync(path.join(root, dirs[0], 'state.json'), 'utf8'));
+  assert.strictEqual(state.maxPct, 95);
+  assert.strictEqual(state.provider, 'codex');
+  assert.ok(state.updatedAt);
+  assert.ok(state.lastWarnedAt);
+
+  fs.rmSync(home, { recursive: true, force: true });
+  fs.rmSync(codexHome, { recursive: true, force: true });
+  delete process.env.CQG_HOME;
+  delete process.env.CQG_CODEX_HOME;
+});
+
+test('pollProviders is a no-op when the codex provider is disabled', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-watcher-'));
+  process.env.CQG_HOME = home;
+
+  const result = watcher.pollProviders({
+    config: { notifications: { enabled: true }, providers: { codex: { enabled: false } } },
+    notifySend: () => { throw new Error('must not notify'); },
+  });
+  assert.deepStrictEqual(result, { sessions: 0, notified: 0 });
+
+  fs.rmSync(home, { recursive: true, force: true });
+  delete process.env.CQG_HOME;
+});
+
+test('pollProviders respects notifications.enabled=false but still writes state', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-watcher-'));
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-codexhome-'));
+  process.env.CQG_HOME = home;
+  process.env.CQG_CODEX_HOME = codexHome;
+
+  const now = new Date();
+  const y = String(now.getFullYear());
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  const sessionsDir = path.join(codexHome, 'sessions', y, m, d);
+  fs.mkdirSync(sessionsDir, { recursive: true });
+  fs.writeFileSync(path.join(sessionsDir, 'rollout-q.jsonl'), [
+    JSON.stringify({ type: 'session_meta', payload: { cwd: 'C:\p' } }),
+    JSON.stringify({ type: 'event_msg', payload: { type: 'token_count', info: { last_token_usage: { total_tokens: 99 }, model_context_window: 100 }, rate_limits: null } }),
+  ].join('\n') + '\n');
+
+  const sent = [];
+  const result = watcher.pollProviders({
+    now,
+    config: { notifications: { enabled: false }, providers: { codex: { enabled: true, warnPct: 90 } } },
+    notifySend: (t, msg) => sent.push(msg),
+  });
+
+  assert.strictEqual(result.sessions, 1);
+  assert.strictEqual(sent.length, 0);
+  const root = path.join(home, '.claude', 'session-continuity');
+  assert.strictEqual(fs.readdirSync(root).filter((n) => n.startsWith('codex-')).length, 1);
+
+  fs.rmSync(home, { recursive: true, force: true });
+  fs.rmSync(codexHome, { recursive: true, force: true });
+  delete process.env.CQG_HOME;
+  delete process.env.CQG_CODEX_HOME;
+});

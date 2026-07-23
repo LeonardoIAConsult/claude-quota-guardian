@@ -32,7 +32,7 @@ test('performCheck throttles ccusage to once every planCheckIntervalToolCalls ch
     plan: 'pro',
     planTokenLimit: null,
     planCheckIntervalToolCalls: 3,
-    thresholds: { context: 0.995, plan: 0.995, desktopWarn: 0.99 },
+    thresholds: { context: 0.995, plan: 0.995 },
   };
   const input = baseInput(cwd);
 
@@ -66,7 +66,7 @@ test('performCheck does not touch ccusage at all when plan is "none"', (t) => {
     plan: 'none',
     planTokenLimit: null,
     planCheckIntervalToolCalls: 3,
-    thresholds: { context: 0.995, plan: 0.995, desktopWarn: 0.99 },
+    thresholds: { context: 0.995, plan: 0.995 },
   };
   const input = baseInput(cwd);
 

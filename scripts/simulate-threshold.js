@@ -21,6 +21,7 @@ function main() {
 
   const entry = {
     type: 'assistant',
+    entrypoint: 'cli',
     message: {
       id: 'msg_simulated',
       role: 'assistant',

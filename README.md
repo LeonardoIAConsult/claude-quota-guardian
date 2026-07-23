@@ -1,14 +1,16 @@
 # claude-quota-guardian
 
-Automatic checkpoint and resume for Claude Code sessions approaching usage limits.
+Automatic checkpoint and resume for Claude Code terminal sessions approaching usage limits — plus notify-only monitoring for other AI CLIs (currently OpenAI Codex).
 
-When your context window or plan quota gets close to its limit, claude-quota-guardian:
+When your context window or plan quota gets close to its limit in a **Claude Code terminal session** (`entrypoint === "cli"` — the only surface with a real "end the turn" affordance), claude-quota-guardian:
 
 1. Detects the threshold (default 99.5%) via a `PostToolUse` hook.
 2. Tells Claude to stop and run `/continuity-checkpoint`, which writes a rich, structured summary of the session (what was built, what worked, what didn't, the exact next step).
 3. The next time you open Claude Code in that project, a `SessionStart` hook automatically injects that checkpoint as context — Claude picks up exactly where it left off, with zero re-explanation.
 
 No automatic relaunching: you decide when to reopen Claude. claude-quota-guardian only handles the save and the resume.
+
+Other surfaces (Claude Code Desktop, IDE) are heartbeat-only: never blocked, never checkpointed. Other AI providers get a **notify-only tier**: the background watcher reads their local session logs (read-only) and warns you to save before the cutoff — see [docs/configuration.md](docs/configuration.md#other-ai-providers-notify-only).
 
 ## How it works
 
@@ -124,11 +126,12 @@ This prints a ready-to-run command that feeds a simulated near-limit transcript 
 
 ## What's included
 
-- **Core loop** — `hooks/check-usage.js` detects the threshold and triggers `/continuity-checkpoint`; `hooks/resume-context.js` auto-injects the checkpoint on the next `SessionStart`.
+- **Core loop** — `hooks/check-usage.js` detects the threshold and triggers `/continuity-checkpoint`; `hooks/resume-context.js` auto-injects the checkpoint on the next `SessionStart`. Terminal (`cli`) surface only.
 - **Background watcher** — `watcher/quota-watcher.js` notifies you once your plan quota resets, so you know it's safe to reopen Claude.
+- **Provider adapters** — `lib/adapters/codex.js` monitors OpenAI Codex CLI sessions (notify-only) from their local rollout logs.
 - **Installer / uninstaller** — `bin/install.js` / `bin/uninstall.js` (see Quick install above).
 
-111/111 tests pass on Node 18 and 20 (`npm test`; CI in `.github/workflows/test.yml`).
+129/129 tests pass on Node 18 and 20 (`npm test`; CI in `.github/workflows/test.yml`).
 
 See `docs/superpowers/specs/2026-06-11-claude-quota-guardian-design.md` for the full design.
 
