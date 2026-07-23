@@ -1,51 +1,79 @@
-# claude-quota-guardian
+# 🛡️ Claude Quota Guardian
 
-Automatic checkpoint and resume for Claude Code terminal sessions approaching usage limits — plus notify-only monitoring for other AI CLIs (currently OpenAI Codex).
+> 🇬🇧 [English version](README.en.md)
 
-When your context window or plan quota gets close to its limit in a **Claude Code terminal session** (`entrypoint === "cli"` — the only surface with a real "end the turn" affordance), claude-quota-guardian:
+**Tu red de seguridad para sesiones largas de IA.** Guardian vigila en segundo plano cuánto contexto y cuota consume tu sesión de Claude Code y, justo antes del corte, obliga a guardar un checkpoint estructurado que la próxima sesión retoma sola — sin perder el hilo, sin re-explicar nada.
 
-1. Detects the threshold (default 99.5%) via a `PostToolUse` hook.
-2. Tells Claude to stop and run `/continuity-checkpoint`, which writes a rich, structured summary of the session (what was built, what worked, what didn't, the exact next step).
-3. The next time you open Claude Code in that project, a `SessionStart` hook automatically injects that checkpoint as context — Claude picks up exactly where it left off, with zero re-explanation.
+## El problema
 
-No automatic relaunching: you decide when to reopen Claude. claude-quota-guardian only handles the save and the resume.
+Cualquiera que trabaje sesiones largas con un agente de IA conoce el momento: llevás horas construyendo algo, el contexto se llena o la cuota del plan se agota, y la sesión muere a mitad de una tarea. Lo que sigue es peor que el corte: reabrir, re-explicar todo desde cero, y ver al agente re-intentar caminos que ya habían fallado.
 
-Other surfaces (Claude Code Desktop, IDE) are heartbeat-only: never blocked, never checkpointed. Other AI providers get a **notify-only tier**: the background watcher reads their local session logs (read-only) and warns you to save before the cutoff — see [docs/configuration.md](docs/configuration.md#other-ai-providers-notify-only).
+## Qué hace Guardian
 
-## How it works
+Cuando una **sesión de Claude Code en terminal** se acerca a su límite (contexto de la conversación o cuota 5h/7d del plan), Guardian:
+
+1. **Detecta el umbral** (99.6% por defecto) tras cada tool call y cada turno — incluye la cuota real de tu cuenta Pro/Max vía `rate_limits`, no solo estimaciones locales.
+2. **Frena el trabajo nuevo** con un bloqueo real de herramientas (hook `PreToolUse`): el agente no puede seguir quemando tokens sin guardar primero.
+3. **Fuerza un checkpoint estructurado** (`/continuity-checkpoint`): qué se estaba construyendo, qué funcionó (con evidencia), qué NO funcionó y por qué, estado de cada archivo, decisiones tomadas, y el próximo paso exacto.
+4. **Avisa cuando la cuota se reinicia** (watcher en segundo plano con notificaciones del sistema, cadencia adaptativa 15→3→1 min según qué tan llena está la sesión).
+5. **Retoma solo**: al reabrir Claude Code en ese proyecto, un hook `SessionStart` inyecta el checkpoint completo como contexto. El agente anuncia el próximo paso y sigue — cero re-explicación.
 
 ```
-[Normal work] -> PostToolUse: check-usage.js
+[Trabajo normal] -> PostToolUse: check-usage.js
        |
-       |-- below threshold -> no-op
+       |-- bajo el umbral -> no-op
        |
-       `-- >= 99.5% -> pending.json + OS notification + hook "block"
+       `-- >= 99.6% -> pending.json + notificación OS + bloqueo
                         |
                         v
-                Claude runs /continuity-checkpoint
-                -> writes checkpoint-<ts>.md, updates pending.json
-                -> ends the turn cleanly
+                Claude ejecuta /continuity-checkpoint
+                -> escribe checkpoint-<ts>.md
+                -> cierra el turno limpio
                         |
-              (you close Claude, usage resets later)
+              (cerrás Claude; la cuota se reinicia después)
                         |
-              quota-watcher (background) detects the reset
-              -> OS notification: "ready to continue"
+              quota-watcher (fondo) detecta el reset
+              -> notificación: "listo para continuar"
                         |
-              You reopen Claude in the same project
+              Reabrís Claude en el mismo proyecto
                         |
                 SessionStart: resume-context.js
-                -> injects the full checkpoint + "MODO RETOMAR"
-                -> marks pending.json consumed
+                -> inyecta el checkpoint completo
                         |
-                Claude announces the next step and continues
+                Claude anuncia el próximo paso y sigue
 ```
 
-## Requirements
+Sin relanzamiento automático: vos decidís cuándo reabrir. Guardian solo se encarga del guardado y la retoma.
+
+## Beneficios (comprobables)
+
+- **Cero contexto perdido**: el checkpoint captura lo que un resumen automático pierde — los caminos que fallaron y por qué, para que no se re-intenten.
+- **Cero tokens quemados a ciegas**: el bloqueo duro impide que el agente siga trabajando sobre una sesión condenada.
+- **Señal real, no estimada**: usa el `rate_limits` account-wide (5h/7d) que Claude Code expone — el mismo número que ve tu cuenta.
+- **Instalación de 1 comando, desinstalación limpia**: mergea sus hooks en `settings.json` sin tocar los tuyos; el uninstaller solo quita lo suyo.
+- **Multi-OS**: Windows (Task Scheduler), macOS (launchd), Linux (systemd/cron).
+- **129/129 tests** en Node 18 y 20 (`npm test`, CI incluido).
+- **Extensible a otros proveedores de IA**: arquitectura de adaptadores; hoy incluye monitoreo notify-only de **OpenAI Codex CLI** (lee sus logs de sesión locales y te avisa antes del corte).
+
+## ¿Para quién es?
+
+- **Usuarios de Claude Code con plan Pro/Max** que chocan contra la ventana de 5h en sesiones intensas.
+- **Devs que corren agentes autónomos** en tareas largas (refactors, auditorías, features multi-archivo) donde un corte a mitad de camino cuesta horas.
+- **Freelancers y equipos chicos** que facturan por resultado y no pueden pagar el costo de re-explicar contexto en cada sesión.
+- **Usuarios multi-CLI** que alternan Claude Code y Codex y quieren una sola red de seguridad.
+
+## Alcance honesto
+
+- El loop completo (detectar → bloquear → checkpoint → retoma automática) aplica a **Claude Code en terminal** (`entrypoint === "cli"`), la única superficie con hooks y un "cerrá el turno" real. Desktop/IDE solo aportan heartbeat al watcher; nunca se bloquean.
+- Otros proveedores (Codex hoy) son **notify-only**: sin sistema de hooks no hay bloqueo ni retoma automática posible — Guardian te avisa a tiempo para pedirle un resumen antes del corte.
+- El % de contexto local es una estimación conservadora (ver [docs/configuration.md](docs/configuration.md)); la señal de cuota `rate_limits` es real.
+
+## Requisitos
 
 - Node.js >= 18
-- Claude Code (CLI or desktop app) with hook support
+- Claude Code (CLI) con soporte de hooks
 
-## Quick install
+## Instalación rápida
 
 ```bash
 git clone <repo-url> ~/.claude/claude-quota-guardian
@@ -54,87 +82,34 @@ npm install
 node bin/install.js
 ```
 
-This single command:
+Ese único comando: escribe la config por defecto, mergea los hooks en `~/.claude/settings.json` (sin pisar los existentes), reclama el `statusLine` para tracking real de cuota (solo si está libre), instala el comando `/continuity-checkpoint` y registra el watcher en el programador de tareas de tu OS.
 
-- Writes `~/.claude/session-continuity/config.json` with defaults (edit it afterwards to set your `plan` — see [docs/configuration.md](docs/configuration.md)).
-- Merges the `PostToolUse` and `SessionStart` hooks into `~/.claude/settings.json` without touching any hooks you already have.
-- Claims the `statusLine` slot for real account-wide quota tracking (`rate_limits`), unless something else already owns it — see [docs/configuration.md](docs/configuration.md).
-- Copies `commands/continuity-checkpoint.md` into `~/.claude/commands/`.
-- Registers the background `quota-watcher` to run every `watcherIntervalMinutes` (default 15) via Task Scheduler (Windows), launchd (macOS), or a systemd user timer with a cron fallback (Linux).
-
-If the scheduler step fails (e.g. `schtasks`/`systemctl` unavailable), `install.js` prints a manual fallback command — everything else is still installed.
-
-### Uninstalling
+### Desinstalar
 
 ```bash
-node bin/uninstall.js          # removes hooks, command and watcher schedule
-node bin/uninstall.js --purge  # also deletes ~/.claude/session-continuity (checkpoints!)
+node bin/uninstall.js          # quita hooks, comando y watcher
+node bin/uninstall.js --purge  # además borra los checkpoints guardados
 ```
 
-## Manual installation
-
-If you'd rather wire things up yourself (or `bin/install.js` doesn't support your platform), follow these steps:
-
-1. Clone this repo somewhere stable, e.g. `~/.claude/claude-quota-guardian`:
-
-   ```bash
-   git clone <repo-url> ~/.claude/claude-quota-guardian
-   ```
-
-2. Add the hooks to `~/.claude/settings.json` (merge into your existing `hooks` object — don't overwrite other hooks):
-
-   ```json
-   {
-     "hooks": {
-       "PostToolUse": [
-         { "matcher": "*", "hooks": [{ "type": "command", "command": "node \"~/.claude/claude-quota-guardian/hooks/check-usage.js\"" }] }
-       ],
-       "SessionStart": [
-         { "matcher": "*", "hooks": [{ "type": "command", "command": "node \"~/.claude/claude-quota-guardian/hooks/resume-context.js\"" }] }
-       ]
-     }
-   }
-   ```
-
-   Replace `~` with your actual home directory path (e.g. `C:\\Users\\YOU` on Windows) — `settings.json` does not expand `~`.
-
-3. Copy the checkpoint command:
-
-   ```bash
-   cp ~/.claude/claude-quota-guardian/commands/continuity-checkpoint.md ~/.claude/commands/
-   ```
-
-4. (Optional) enable plan-quota checks: create `~/.claude/session-continuity/config.json` — see [docs/configuration.md](docs/configuration.md).
-
-5. (Optional) install `ccusage` for plan-quota checks: `npm i -g ccusage`.
-
-6. (Optional) install `node-notifier` for OS notifications:
-
-   ```bash
-   cd ~/.claude/claude-quota-guardian && npm install
-   ```
-
-7. (Optional) register the background watcher yourself — see `lib/scheduled-task.js` for the exact per-OS command/file, or just run `node bin/install.js` to do this step only.
-
-## Testing your install
+### Probar la instalación
 
 ```bash
-node scripts/simulate-threshold.js --pct 99.6
+node scripts/simulate-threshold.js --pct 99.7
 ```
 
-This prints a ready-to-run command that feeds a simulated near-limit transcript into `hooks/check-usage.js`, so you can confirm the hook fires and writes `pending.json` without waiting for a real session to fill up.
+Imprime un comando listo para simular una sesión al límite y confirmar que el hook dispara, sin esperar a que una sesión real se llene.
 
-## What's included
+## Configuración
 
-- **Core loop** — `hooks/check-usage.js` detects the threshold and triggers `/continuity-checkpoint`; `hooks/resume-context.js` auto-injects the checkpoint on the next `SessionStart`. Terminal (`cli`) surface only.
-- **Background watcher** — `watcher/quota-watcher.js` notifies you once your plan quota resets, so you know it's safe to reopen Claude.
-- **Provider adapters** — `lib/adapters/codex.js` monitors OpenAI Codex CLI sessions (notify-only) from their local rollout logs.
-- **Installer / uninstaller** — `bin/install.js` / `bin/uninstall.js` (see Quick install above).
+Todo opcional, con defaults sensatos: umbrales, plan, cadencia del watcher, proveedores externos. Ver [docs/configuration.md](docs/configuration.md).
 
-129/129 tests pass on Node 18 and 20 (`npm test`; CI in `.github/workflows/test.yml`).
+## Qué incluye
 
-See `docs/superpowers/specs/2026-06-11-claude-quota-guardian-design.md` for the full design.
+- **Loop principal** — `hooks/check-usage.js` (detección), `hooks/enforce-checkpoint.js` (bloqueo real), `hooks/resume-context.js` (retoma automática). Solo superficie terminal.
+- **Watcher en segundo plano** — `watcher/quota-watcher.js`: aviso de reset de cuota + cadencia adaptativa.
+- **Adaptadores de proveedor** — `lib/adapters/codex.js`: monitoreo notify-only de sesiones de OpenAI Codex CLI.
+- **Instalador / desinstalador** — `bin/install.js` / `bin/uninstall.js`.
 
-## License
+## Licencia
 
 MIT
