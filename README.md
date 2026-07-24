@@ -1,4 +1,4 @@
-<p align="center"><img src="assets/logo.svg" width="140" alt="Guardian logo"></p>
+<p align="center"><img src="assets/banner.png" alt="Claude Quota Guardian" width="100%"></p>
 
 # 🛡️ Claude Quota Guardian
 

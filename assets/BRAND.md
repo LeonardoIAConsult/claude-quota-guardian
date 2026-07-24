@@ -29,6 +29,7 @@ Sistema: `Segoe UI, Helvetica, Arial, sans-serif`. Wordmark en bold 700; tagline
 ## Banner
 
 - `banner.svg` — fuente editable 1280×640 (wordmark + tagline ES + mini-flujo detecta→guarda→retoma).
+- `banner-en.svg` / `banner-en.png` — variante en inglés (cabecera de README.en.md).
 - `banner.png` — raster para el **social preview de GitHub**: Settings → General → Social preview → Upload image.
 
 ## Regenerar PNGs (sin dependencias, Chromium headless)
