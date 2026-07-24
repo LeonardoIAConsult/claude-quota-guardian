@@ -66,7 +66,7 @@ No automatic relaunching: you decide when to reopen. Guardian only handles the s
 
 ## Honest scope
 
-- The full loop (detect → block → checkpoint → auto-resume) applies to **Claude Code in the terminal** (`entrypoint === "cli"`), the only surface with hooks and a real "end the turn" affordance. Desktop/IDE only feed heartbeats to the watcher; they are never blocked.
+- The full loop (detect → block → checkpoint → auto-resume) applies to **Claude Code in the terminal** (`entrypoint === "cli"`), the only surface with hooks and a real "end the turn" affordance. **Claude Code Desktop** gets the notify-only tier: context (99%) and account-quota warnings, never a block.
 - Other providers (Codex today) are **notify-only**: without a hook system there is no blocking and no auto-resume — Guardian warns you in time to ask for a summary before the cutoff.
 - The local context % is a conservative estimate (see [docs/configuration.md](docs/configuration.md)); the `rate_limits` quota signal is real.
 

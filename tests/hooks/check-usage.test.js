@@ -125,7 +125,7 @@ test('check-usage keeps writing the heartbeat even while a pending checkpoint is
   fs.rmSync(home, { recursive: true, force: true });
 });
 
-test('check-usage never blocks or pends for a non-CLI surface, even above the hard-block threshold', () => {
+test('check-usage warns notify-only but never blocks or pends for claude-desktop, even above the hard-block threshold', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-home-'));
   fs.mkdirSync(path.join(home, '.claude', 'session-continuity'), { recursive: true });
   fs.writeFileSync(
@@ -146,6 +146,7 @@ test('check-usage never blocks or pends for a non-CLI surface, even above the ha
   const state = JSON.parse(fs.readFileSync(stateFileFor(home, 'C:\\fake\\project'), 'utf8'));
   assert.strictEqual(state.entrypoint, 'claude-desktop');
   assert.ok(state.maxPct >= 99.5); // heartbeat still flows for the watcher
+  assert.ok(state.lastDesktopWarnAt); // notify-only context warn fired
 
   fs.rmSync(home, { recursive: true, force: true });
 });
@@ -185,7 +186,7 @@ test('check-usage hard-blocks on CLI from a cached rate_limit signal alone, even
   fs.rmSync(home, { recursive: true, force: true });
 });
 
-test('check-usage stays silent on a non-CLI surface even when the cached rate_limit signal is over threshold', () => {
+test('check-usage plan-warns on claude-desktop from a cached rate_limit signal alone, without blocking or pending', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-home-'));
 
   const statePath = stateFileFor(home, 'C:\\fake\\project');
@@ -204,6 +205,8 @@ test('check-usage stays silent on a non-CLI surface even when the cached rate_li
 
   const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
   assert.strictEqual(state.rateLimitPct, 99.9); // cached signal carried forward
+  assert.strictEqual(state.lastDesktopWarnAt, null); // context only ~50%: warns are independent
+  assert.ok(state.lastDesktopPlanWarnAt); // account-quota warn fired
 
   fs.rmSync(home, { recursive: true, force: true });
 });
@@ -216,5 +219,22 @@ test('check-usage exits 0 with bad stdin', () => {
     env: { ...process.env, CQG_HOME: home },
   });
   assert.strictEqual(out.trim(), '');
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('check-usage desktop warn (99%) fires below the CLI hard-block threshold (99.6%)', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-home-'));
+
+  runHook(
+    { transcript_path: path.join(FIXTURES, 'transcript-99-2pct-desktop.jsonl'), cwd: 'C:\fake\project', session_id: 's1' },
+    { CQG_HOME: home }
+  );
+
+  // 99.2% is below the CLI's 99.6% block threshold but above Desktop's 99%
+  // warn threshold -- the marker firing proves the lower threshold is live.
+  const state = JSON.parse(fs.readFileSync(stateFileFor(home, 'C:\fake\project'), 'utf8'));
+  assert.ok(state.lastDesktopWarnAt);
+  assert.strictEqual(fs.existsSync(pendingFileFor(home, 'C:\fake\project')), false);
+
   fs.rmSync(home, { recursive: true, force: true });
 });

@@ -82,6 +82,7 @@ test('heartbeat-stop never pends for a non-CLI surface, even above the hard-bloc
   const state = JSON.parse(fs.readFileSync(stateFileFor(home, 'C:\\fake\\project'), 'utf8'));
   assert.strictEqual(state.entrypoint, 'claude-desktop');
   assert.ok(state.maxPct >= 99.5); // heartbeat still flows for the watcher
+  assert.ok(state.lastDesktopWarnAt); // notify-only warn fires on Stop too
 
   fs.rmSync(home, { recursive: true, force: true });
 });

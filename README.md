@@ -66,7 +66,7 @@ Sin relanzamiento automático: vos decidís cuándo reabrir. Guardian solo se en
 
 ## Alcance honesto
 
-- El loop completo (detectar → bloquear → checkpoint → retoma automática) aplica a **Claude Code en terminal** (`entrypoint === "cli"`), la única superficie con hooks y un "cerrá el turno" real. Desktop/IDE solo aportan heartbeat al watcher; nunca se bloquean.
+- El loop completo (detectar → bloquear → checkpoint → retoma automática) aplica a **Claude Code en terminal** (`entrypoint === "cli"`), la única superficie con hooks y un "cerrá el turno" real. **Claude Code Desktop** recibe el tier notify-only: avisos de contexto (99%) y de cuota de cuenta, nunca bloqueo.
 - Otros proveedores (Codex hoy) son **notify-only**: sin sistema de hooks no hay bloqueo ni retoma automática posible — Guardian te avisa a tiempo para pedirle un resumen antes del corte.
 - El % de contexto local es una estimación conservadora (ver [docs/configuration.md](docs/configuration.md)); la señal de cuota `rate_limits` es real.
 
