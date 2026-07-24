@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/logo.svg" width="140" alt="Guardian logo"></p>
+
 # 🛡️ Claude Quota Guardian
 
 > 🇬🇧 [English version](README.en.md)
@@ -52,7 +54,7 @@ Sin relanzamiento automático: vos decidís cuándo reabrir. Guardian solo se en
 - **Señal real, no estimada**: usa el `rate_limits` account-wide (5h/7d) que Claude Code expone — el mismo número que ve tu cuenta.
 - **Instalación de 1 comando, desinstalación limpia**: mergea sus hooks en `settings.json` sin tocar los tuyos; el uninstaller solo quita lo suyo.
 - **Multi-OS**: Windows (Task Scheduler), macOS (launchd), Linux (systemd/cron).
-- **129/129 tests** en Node 18 y 20 (`npm test`, CI incluido).
+- **130/130 tests** en Node 18 y 20 (`npm test`, CI incluido).
 - **Extensible a otros proveedores de IA**: arquitectura de adaptadores; hoy incluye monitoreo notify-only de **OpenAI Codex CLI** (lee sus logs de sesión locales y te avisa antes del corte).
 
 ## ¿Para quién es?

@@ -9,6 +9,7 @@ const { atomicWriteFileSync } = require('../lib/atomic-write');
 const scheduledTask = require('../lib/scheduled-task');
 const notify = require('../lib/notify');
 const codexAdapter = require('../lib/adapters/codex');
+const { installHooks, buildHookAdditions } = require('../bin/install');
 
 const DEFAULT_STALENESS_MS = 20 * 60 * 1000;
 
@@ -64,6 +65,44 @@ function runWatcherOnce({ now = new Date(), config = loadConfig(), notifySend = 
   }
 
   return { checked: files.length, notified };
+}
+
+// Why this exists: on 2026-06-30 an external tool rewrote ~/.claude/settings.json
+// and silently dropped Guardian's hooks -- the watcher kept running but the
+// whole detect/checkpoint loop was dead for 23 days before anyone noticed.
+// The watcher is the only Guardian process guaranteed to keep running, so on
+// every pass it verifies the four hooks are still registered and re-merges
+// them (via the installer's own idempotent merge) if anything removed them.
+// Note: bin/uninstall.js removes the watcher schedule itself, so an
+// uninstalled Guardian cannot resurrect its own hooks through this path.
+function selfHealHooks({
+  settingsFilePath = paths.settingsPath(),
+  repoRoot = path.join(__dirname, '..'),
+  notifySend = notify.send,
+  config = loadConfig(),
+} = {}) {
+  let settings;
+  try {
+    settings = JSON.parse(fs.readFileSync(settingsFilePath, 'utf8'));
+  } catch {
+    settings = {};
+  }
+
+  const hooks = settings.hooks || {};
+  const missing = buildHookAdditions(repoRoot).filter(({ event, command }) => {
+    const list = hooks[event] || [];
+    return !list.some((entry) => (entry.hooks || []).some((h) => h.command === command));
+  });
+  if (missing.length === 0) return { healed: false, missing: 0 };
+
+  installHooks({ settingsFilePath, repoRoot });
+  if (config.notifications && config.notifications.enabled) {
+    notifySend(
+      'Claude Quota Guardian',
+      `Hooks reinstalados (${missing.length} faltaban en settings.json) — algo los había borrado. Guardian sigue activo.`
+    );
+  }
+  return { healed: true, missing: missing.length };
 }
 
 // Poll non-Claude providers (notify-only tier: no hooks there, so no blocking
@@ -231,6 +270,13 @@ function appendLog(message) {
 
 function main() {
   const summary = runWatcherOnce();
+  let healNote = '';
+  try {
+    const heal = selfHealHooks();
+    if (heal.healed) healNote = ` hooks-healed=${heal.missing}`;
+  } catch (err) {
+    healNote = ` heal-error=${err.message}`;
+  }
   let providerNote = '';
   try {
     const providers = pollProviders();
@@ -246,11 +292,11 @@ function main() {
   } catch (err) {
     intervalNote = ` interval-error=${err.message}`;
   }
-  appendLog(`checked=${summary.checked} notified=${summary.notified}${providerNote}${intervalNote}`);
+  appendLog(`checked=${summary.checked} notified=${summary.notified}${healNote}${providerNote}${intervalNote}`);
 }
 
 if (require.main === module) {
   main();
 }
 
-module.exports = { findPendingFiles, shouldNotifyReset, processPendingFile, runWatcherOnce, pollProviders, readLiveMaxPct, readWatcherInterval, reconcileInterval, appendLog, main };
+module.exports = { findPendingFiles, shouldNotifyReset, processPendingFile, runWatcherOnce, selfHealHooks, pollProviders, readLiveMaxPct, readWatcherInterval, reconcileInterval, appendLog, main };

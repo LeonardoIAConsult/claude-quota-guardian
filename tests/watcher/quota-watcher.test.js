@@ -370,3 +370,49 @@ test('pollProviders respects notifications.enabled=false but still writes state'
   delete process.env.CQG_HOME;
   delete process.env.CQG_CODEX_HOME;
 });
+
+test('selfHealHooks re-merges missing guardian hooks and notifies', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-heal-'));
+  process.env.CQG_HOME = home;
+  const settingsFile = path.join(home, '.claude', 'settings.json');
+  fs.mkdirSync(path.dirname(settingsFile), { recursive: true });
+  // Foreign hook present, guardian hooks absent -- the 2026-06-30 scenario.
+  fs.writeFileSync(settingsFile, JSON.stringify({
+    hooks: { PreToolUse: [{ matcher: '*', hooks: [{ type: 'command', command: 'node other-tool.js' }] }] },
+    statusLine: { type: 'command', command: 'node someone-elses.js' },
+  }));
+
+  const repoRoot = path.join(__dirname, '..', '..');
+  const sent = [];
+  const first = watcher.selfHealHooks({
+    settingsFilePath: settingsFile,
+    repoRoot,
+    notifySend: (t, msg) => sent.push(msg),
+    config: { notifications: { enabled: true } },
+  });
+
+  assert.strictEqual(first.healed, true);
+  assert.strictEqual(first.missing, 4);
+  assert.strictEqual(sent.length, 1);
+
+  const settings = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
+  // Foreign hook and statusLine untouched.
+  assert.ok(settings.hooks.PreToolUse.some((e) => e.hooks.some((h) => h.command === 'node other-tool.js')));
+  assert.strictEqual(settings.statusLine.command, 'node someone-elses.js');
+  // All four guardian hooks restored.
+  for (const event of ['PreToolUse', 'PostToolUse', 'Stop', 'SessionStart']) {
+    assert.ok(settings.hooks[event].some((e) => e.hooks.some((h) => h.command.includes('claude-quota-guardian') || h.command.includes(repoRoot))), event + ' restored');
+  }
+
+  // Second pass: nothing missing, no write, no notify.
+  const second = watcher.selfHealHooks({
+    settingsFilePath: settingsFile,
+    repoRoot,
+    notifySend: () => { throw new Error('must not notify'); },
+    config: { notifications: { enabled: true } },
+  });
+  assert.deepStrictEqual(second, { healed: false, missing: 0 });
+
+  fs.rmSync(home, { recursive: true, force: true });
+  delete process.env.CQG_HOME;
+});

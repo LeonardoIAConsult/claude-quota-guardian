@@ -25,6 +25,8 @@ Five hooks, all registered globally in `~/.claude/settings.json` (apply to every
 | `hooks/resume-context.js` | `SessionStart` | Injects the saved checkpoint into a new session once consumed. |
 | `hooks/statusline.js` | `statusLine` | Caches Claude Code's real account-wide `rate_limits` (5h/7d Pro/Max quota) into `state.json` and renders the visible status line. See below. |
 
+**Self-heal:** on every watcher pass, `selfHealHooks` verifies the four hooks are still registered in `~/.claude/settings.json` and re-merges them (idempotent, never touches foreign hooks or the statusLine) if an external tool removed them, sending an OS notification when it heals. `bin/uninstall.js` removes the watcher schedule itself, so an uninstalled Guardian cannot resurrect its own hooks.
+
 Once a checkpoint is pending, `check-usage.js`/`heartbeat-stop.js` re-notify every 5 minutes (instead of a single one-shot toast) until `/continuity-checkpoint` runs and marks it consumed.
 
 **Terminal-only enforcement:** every Claude Code transcript line is stamped with an `entrypoint` field (`"cli"`, `"claude-desktop"`, ...) — `lib/usage-monitor.js`'s `getEntrypoint` reads it back out of the transcript, and `lib/threshold-check.js` enforces on exactly one value:
