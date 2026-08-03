@@ -1,10 +1,25 @@
 const test = require('node:test');
 const assert = require('node:assert');
+const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const cp = require('node:child_process');
 const { getContextUsage, getPlanUsage, getThrottledPlanUsage, getStatus, getEntrypoint } = require('../../lib/usage-monitor');
 
 const FIXTURES = path.join(__dirname, '..', 'fixtures');
+
+// Isolates readAccessToken from the machine's real ~/.claude/.credentials.json
+// for tests that exercise the usage-API path with an empty cache.
+function withEmptyHome(t) {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-monitor-'));
+  const prev = process.env.CQG_HOME;
+  process.env.CQG_HOME = home;
+  t.after(() => {
+    if (prev === undefined) delete process.env.CQG_HOME;
+    else process.env.CQG_HOME = prev;
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+}
 
 test('getContextUsage computes pct from latest assistant usage', () => {
   const result = getContextUsage(path.join(FIXTURES, 'transcript-50pct.jsonl'));
@@ -241,6 +256,82 @@ test('getThrottledPlanUsage returns unavailable for plan "none" without touching
   assert.strictEqual(calls, 0);
   assert.strictEqual(result.available, false);
   assert.strictEqual(result.due, false);
+});
+
+test('getStatus takes plan% from a fresh usage-API cache and skips ccusage entirely', (t) => {
+  let calls = 0;
+  t.mock.method(cp, 'execFileSync', () => { calls += 1; return '{}'; });
+
+  const status = getStatus({
+    transcriptPath: path.join(FIXTURES, 'transcript-50pct.jsonl'),
+    config: { plan: 'pro', usageApi: { enabled: true, cacheSeconds: 60 }, thresholds: { context: 0.995, plan: 0.995 } },
+    cachedApiUsage: {
+      pct: 99.7,
+      resetAt: new Date(Date.now() + 3600_000).toISOString(),
+      fetchedAt: new Date().toISOString(),
+    },
+  });
+
+  assert.strictEqual(calls, 0);
+  assert.strictEqual(status.planPct, 99.7);
+  assert.strictEqual(status.anyAtThreshold, true);
+  assert.strictEqual(status.triggeredBy, 'plan');
+  assert.strictEqual(status.apiUsage.available, true);
+  assert.strictEqual(status.planUsage.reason, 'api-active');
+});
+
+test('getStatus never touches the usage API unless config enables it explicitly', () => {
+  // No cp mock and no CQG_HOME override: a network attempt would be a real
+  // spawn, so reaching this assertion proves the disabled gate held.
+  const status = getStatus({
+    transcriptPath: path.join(FIXTURES, 'transcript-50pct.jsonl'),
+    config: { plan: 'none', thresholds: { context: 0.995, plan: 0.995 } },
+    cachedApiUsage: { pct: 99.9, resetAt: null, fetchedAt: new Date().toISOString() },
+  });
+  assert.strictEqual(status.apiUsage.available, false);
+  assert.strictEqual(status.apiUsage.reason, 'disabled');
+  assert.strictEqual(status.planPct, null);
+});
+
+test('getStatus still lets a higher cachedRateLimit win over the usage API', (t) => {
+  t.mock.method(cp, 'execFileSync', () => '{}');
+
+  const status = getStatus({
+    transcriptPath: path.join(FIXTURES, 'transcript-50pct.jsonl'),
+    config: { plan: 'none', usageApi: { enabled: true, cacheSeconds: 60 }, thresholds: { context: 0.995, plan: 0.995 } },
+    cachedRateLimit: { pct: 90, resetAt: 'statusline-reset' },
+    cachedApiUsage: {
+      pct: 40,
+      resetAt: new Date(Date.now() + 3600_000).toISOString(),
+      fetchedAt: new Date().toISOString(),
+    },
+  });
+
+  assert.strictEqual(status.planPct, 90);
+  assert.strictEqual(status.planResetAt, 'statusline-reset');
+});
+
+test('getStatus falls back to ccusage when the usage API has no credentials', (t) => {
+  withEmptyHome(t);
+  t.mock.method(cp, 'execFileSync', () => JSON.stringify({
+    blocks: [{ endTime: 'cc-reset', tokenLimitStatus: { percentUsed: 62 } }],
+  }));
+
+  const status = getStatus({
+    transcriptPath: path.join(FIXTURES, 'transcript-50pct.jsonl'),
+    config: {
+      plan: 'pro',
+      usageApi: { enabled: true, cacheSeconds: 60 },
+      thresholds: { context: 0.995, plan: 0.995 },
+      planCheckIntervalToolCalls: 1,
+    },
+    planCheckCounter: 1,
+  });
+
+  assert.strictEqual(status.apiUsage.available, false);
+  assert.strictEqual(status.apiUsage.reason, 'no-credentials');
+  assert.strictEqual(status.planPct, 62);
+  assert.strictEqual(status.planResetAt, 'cc-reset');
 });
 
 test('getStatus reports "both" when context and plan both hit', (t) => {

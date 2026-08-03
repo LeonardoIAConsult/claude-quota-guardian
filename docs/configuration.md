@@ -13,6 +13,7 @@ claude-quota-guardian reads `~/.claude/session-continuity/config.json`. All fiel
 | `planCheckIntervalToolCalls` | `5` | Throttles the `ccusage` subprocess (1-2s typical, shells out via `npx`): only re-runs it once every N `PostToolUse`/`Stop` checks, reusing the last reading from `state.json` in between. The real account-wide `rate_limits` signal (see below) is cached separately and is never throttled by this setting. |
 | `watcherIntervalMinutes` | `15` | Base watcher polling cadence. `adaptiveWatcher.tiers` shortens this as usage climbs (default: 3min at 90%, 1min at 98%). |
 | `notifications.enabled` | `true` | When `false`, the watcher and hooks still write state/pending files but skip OS notifications. |
+| `usageApi` | `{ enabled: true, cacheSeconds: 60, timeoutMs: 5000 }` | Exact account-wide 5h/7d usage from Anthropic's OAuth usage endpoint (see [Exact account-wide quota](#exact-account-wide-quota-oauth-usage-api) below). `enabled: false` reverts to the statusline/ccusage signals only. |
 
 ## Detection architecture
 
@@ -47,6 +48,14 @@ Non-Claude AI CLIs have no hook system, so the full loop (detect → block → c
 - **OpenAI Codex CLI** (`providers.codex`): `lib/adapters/codex.js` reads Codex's own session rollouts (`~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`, read-only — Guardian never writes into `~/.codex`). Each fresh session (file modified within `stalenessMinutes`) yields its real context usage (`last_token_usage.total_tokens` vs `model_context_window` from the last `token_count` event) and, when present, the account `rate_limits.used_percent`. When the max of those crosses `warnPct` (default 90), the watcher sends an OS notification telling you to ask Codex for a summary/checkpoint before the cutoff, re-notifying at most every `renotifyMinutes`. Session state lands in `session-continuity/codex-<hash>/state.json` in the same `maxPct`/`updatedAt` shape as Claude project heartbeats, so the watcher's adaptive polling (15→3→1 min) reacts to a filling Codex session exactly like a filling Claude session. Override the Codex data dir with `CQG_CODEX_HOME` (defaults to `~/.codex`).
 
 To add another provider later: write an adapter that returns `{ projectPath, contextPct, rateLimitPct, maxPct, updatedAt }` per fresh session from that provider's local session logs, and wire it into `pollProviders` in `watcher/quota-watcher.js`.
+
+## Exact account-wide quota (OAuth usage API)
+
+`lib/usage-api.js` queries `https://api.anthropic.com/api/oauth/usage` — the same endpoint Claude Code's own `/usage` command uses — authenticated with the CLI's OAuth token from `~/.claude/.credentials.json` (read fresh on every call, so CLI token refreshes are picked up automatically; the token is passed to the fetch child process via stdin, never argv or env). The response carries exact, unrounded `five_hour`/`seven_day` utilization percentages plus their `resets_at` timestamps — no estimation, no `planTokenLimit` guessing, no third-party tool.
+
+`getStatus` consults it first: when available, its more-pressing window becomes `planPct`/`planResetAt` directly and the ccusage subprocess is skipped entirely (the statusline `rate_limits` cache below still wins if it reports a *higher* number, e.g. a fresher reading). Refetches are throttled to once every `usageApi.cacheSeconds` (default 60s) via the reading cached in `state.json`, force-refreshed when a window's `resets_at` passes (rollover), and a stale reading is reused when a due refresh fails — unless its window already rolled over.
+
+**Caveats:** the endpoint is undocumented and could change or disappear without notice — every failure path (missing/expired credentials, HTTP error, timeout, schema change) silently degrades to the statusline/ccusage signals below, never breaking a hook. It only exists for OAuth (Claude.ai Pro/Max) logins; API-key setups have no `.credentials.json` and simply report `no-credentials`.
 
 ## Real account-wide quota (`rate_limits` via the status line)
 
