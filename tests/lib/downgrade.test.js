@@ -91,6 +91,20 @@ test('computeDowngradeWarn is inert when disabled', (t) => {
   assert.strictEqual(r.lastDowngradeWarnAt, null);
 });
 
+test('computeDowngradeWarn prefers the real per-model weekly cap over global plan%', (t) => {
+  let msg = null;
+  t.mock.method(notify, 'send', (_title, message) => { msg = message; });
+  const r = computeDowngradeWarn({
+    config: CFG,
+    status: { planPct: 10, model: 'claude-opus-4-8' }, // global low...
+    prevState: { rateLimitByModel: { opus: { pct: 92, resetAt: null } } }, // ...but Opus weekly high
+    now: NOW,
+  });
+  assert.strictEqual(r.lastDowngradeWarnAt, new Date(NOW).toISOString());
+  assert.match(msg, /semanal de claude-opus-4-8/);
+  assert.match(msg, /92/);
+});
+
 // --- model propagation ---
 
 test('getStatus propagates the session model from the transcript', () => {

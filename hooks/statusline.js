@@ -4,6 +4,7 @@
 const fs = require('node:fs');
 const paths = require('../lib/paths');
 const { atomicWriteFileSync } = require('../lib/atomic-write');
+const { parseRateLimits } = require('../lib/rate-limits');
 
 function readStdin() {
   try {
@@ -21,34 +22,32 @@ function readJsonSafe(file) {
   }
 }
 
-function isoFromEpochSeconds(seconds) {
-  return typeof seconds === 'number' ? new Date(seconds * 1000).toISOString() : null;
-}
-
 // rate_limits is the only place Claude Code exposes real, account-wide Pro/Max
-// quota (5h/7d) -- it never appears in PreToolUse/PostToolUse/Stop payloads,
-// only here. Cache the more-pressing window into the same per-project
+// quota (5h/7d AND per-model weekly caps) -- it never appears in
+// PreToolUse/PostToolUse/Stop payloads, only here. Cache the more-pressing
+// account window PLUS the per-model weekly caps into the same per-project
 // state.json the other hooks heartbeat into, so lib/threshold-check.js can
-// react to it on its own next run without this script needing to know
-// anything about pending checkpoints or block decisions itself.
+// react to them on its own next run: the account window drives the block, the
+// per-model caps let the downgrade nudge use the real Opus/Sonnet quota instead
+// of a single global number.
 function cacheRateLimit(cwd, rateLimits) {
   if (!cwd || !rateLimits) return;
 
-  const windows = [rateLimits.five_hour, rateLimits.seven_day]
-    .filter((w) => w && typeof w.used_percentage === 'number');
-  if (windows.length === 0) return;
-
-  const top = windows.reduce((a, b) => (b.used_percentage > a.used_percentage ? b : a));
+  const { top, byModel } = parseRateLimits(rateLimits);
+  if (!top && Object.keys(byModel).length === 0) return;
 
   try {
     const statePath = paths.statePath(cwd);
     const prev = readJsonSafe(statePath) || {};
-    atomicWriteFileSync(statePath, JSON.stringify({
-      ...prev,
-      rateLimitPct: top.used_percentage,
-      rateLimitResetAt: isoFromEpochSeconds(top.resets_at),
-      updatedAt: new Date().toISOString(),
-    }, null, 2));
+    const next = { ...prev, updatedAt: new Date().toISOString() };
+    if (top) {
+      next.rateLimitPct = top.pct;
+      next.rateLimitResetAt = top.resetAt;
+    }
+    if (Object.keys(byModel).length > 0) {
+      next.rateLimitByModel = byModel;
+    }
+    atomicWriteFileSync(statePath, JSON.stringify(next, null, 2));
   } catch {
     // cache write is best-effort: the status line still renders below regardless
   }

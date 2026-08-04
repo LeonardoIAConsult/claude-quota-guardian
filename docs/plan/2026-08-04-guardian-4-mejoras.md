@@ -46,3 +46,18 @@ _`model` propagado a `getStatus`; `computeDowngradeWarn`/`isHighTierModel` en `t
 
 ## Orden
 T2 → T1 → T4 → T3 → T0 (reactivación).
+
+---
+
+## Mejoras externas (research GitHub + /cyber-neo, 2026-08-04)
+
+### T5 — Rate limits reales por modelo (de claude-pulse)  ✅ HECHO
+_Audit /cyber-neo: claude-pulse LIMPIO (token OAuth domain-allowlisted, opener sin redirects, subprocess solo git, borra solo lo suyo; su instalador toca statusLine pero NO borra Guardian; no instalado, solo portamos técnica). Guardian ya leía 5h/7d de stdin; port añade caps semanales **por modelo** (`seven_day_opus/sonnet/...`, genérico) en `lib/rate-limits.js` (parser endurecido: try/except por-ventana, epoch|iso, bad resets_at conserva ventana). `statusline.js` cachea `rateLimitByModel` en state; `computeDowngradeWarn` (T3) ahora usa el cap real por-modelo sobre el plan% global. +8 tests. Suite 187 → 171 pass / 16 fail (stubs)._
+
+### T6 — Predictor endurecido (de Maciek-roboblog/Claude-Code-Usage-Monitor)  ⏭️ AUDITADO LIMPIO, PORT DESCARTADO
+_Audit /cyber-neo: LIMPIO (subprocess solo tz/WSL sin shell, urllib solo endpoint oficial, cero eval/exec, no toca settings — es pip standalone). Valor (P90 estima el cap de plan desde historial) YA cubierto por la señal real de T5 → portarlo = redundante (YAGNI). Slice opcional "predicción reset-aware del plan%" ofrecido y NO tomado por Leonardo. Decisión: saltar._
+### T7 — Checkpoint con estado de tareas (de agent-session-resume)  ✅ HECHO
+_Audit /cyber-neo: MUY LIMPIO (scripts read-only, cero red/subprocess/eval/escrituras; grep de patrones peligrosos = 0 matches; skill package, no toca settings). Port prompt-only: `continuity-checkpoint.md` gana sección "Task Status (evidence-based)" DONE/PARTIALLY DONE/NOT DONE/DEFERRED con evidencia obligatoria; `resume-context.js.guardian-bak` refuerza la directiva de retoma ("si un archivo actual contradice el checkpoint, confiá en el archivo; no reabras DEFERRED sin pedido"). Sin cambios de tests (prompt). Suite 187 / 171 pass / 16 fail._
+
+## Repos auditados (clones en Documents/_repo-audit, borrables)
+- claude-pulse (T5) · Claude-Code-Usage-Monitor (T6) · agent-session-resume (T7) — los 3 LIMPIOS. Nada instalado; solo técnicas portadas.

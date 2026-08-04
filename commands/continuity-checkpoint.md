@@ -61,6 +61,13 @@ Write to the `checkpoint` path from Step 1, with this exact structure (fill in r
 |---|---|---|
 <one row per changed file from Step 1b — git status code (M/A/D/??) + a one-line description of its current status>
 
+## Task Status (evidence-based)
+<Classify every task. Each line MUST carry an evidence ref (file:line, test result, command output, or transcript note). Never mark DONE/PARTIALLY DONE from a plan alone — status needs evidence of actual work.>
+- DONE: <task> — evidence: <impl ref>; verification: <test/tool ref or "not recorded">
+- PARTIALLY DONE: <task> — evidence: <started-work ref>; missing: <what's left>
+- NOT DONE: <task> — evidence: <TODO, failing test, or absent artifact>
+- DEFERRED (park/hold): <task> — user wording + reopen condition (do NOT silently reopen)
+
 ## Decisions Made
 <bullet list of decisions and their rationale>
 
