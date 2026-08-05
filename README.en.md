@@ -14,9 +14,9 @@ Anyone who runs long sessions with an AI agent knows the moment: you're hours in
 
 When a **Claude Code terminal session** approaches its limit (conversation context or the plan's 5h/7d quota), Guardian:
 
-1. **Detects the threshold** (99.6% by default) after every tool call and every turn — including your real account-wide Pro/Max quota via `rate_limits`, not just local estimates.
+1. **Detects the threshold** (98.6% by default) after every tool call and every turn — including your real account-wide Pro/Max quota via `rate_limits`, not just local estimates. A **predictive** warning (based on tokens/min burn rate) can get ahead of the wall even earlier.
 2. **Stops new work** with a real tool block (`PreToolUse` hook): the agent cannot keep burning tokens without saving first.
-3. **Forces a structured checkpoint** (`/continuity-checkpoint`): what was being built, what worked (with evidence), what did NOT work and why, the state of every file touched, decisions made, and the exact next step.
+3. **Forces a structured checkpoint** (`/continuity-checkpoint`): what was being built, what worked (with evidence), what did NOT work and why, the state of every file touched, decisions made, and the exact next step. It's written **dense** (caveman style: no filler, fragments; identifiers/paths/errors kept intact) so reopening spends the fewest possible tokens re-reading it.
 4. **Notifies you when the quota resets** (background watcher with OS notifications and adaptive polling — 15→3→1 min as the session fills up).
 5. **Resumes on its own**: the next time you open Claude Code in that project, a `SessionStart` hook injects the full checkpoint as context. The agent announces the next step and continues — zero re-explanation.
 
@@ -25,7 +25,7 @@ When a **Claude Code terminal session** approaches its limit (conversation conte
        |
        |-- below threshold -> no-op
        |
-       `-- >= 99.6% -> pending.json + OS notification + block
+       `-- >= 98.6% -> pending.json + OS notification + block
                         |
                         v
                 Claude runs /continuity-checkpoint
@@ -54,7 +54,8 @@ No automatic relaunching: you decide when to reopen. Guardian only handles the s
 - **Real signal, not an estimate**: uses the account-wide `rate_limits` (5h/7d) that Claude Code exposes — the same number your account sees.
 - **One-command install, clean uninstall**: merges its hooks into `settings.json` without touching yours; the uninstaller only removes its own.
 - **Cross-platform**: Windows (Task Scheduler), macOS (launchd), Linux (systemd/cron).
-- **130/130 tests** on Node 18 and 20 (`npm test`, CI included).
+- **Activity report**: `node scripts/report.js` generates an HTML dashboard of what Guardian actually did — checkpoints created, sessions resumed, and projects protected. It counts only what's measurable; it never invents "tokens saved".
+- **191 tests** on Node 18 and 20 (`npm test`, CI included).
 - **Extensible to other AI providers**: adapter architecture; ships with notify-only monitoring of **OpenAI Codex CLI** today (reads its local session logs and warns you before the cutoff).
 
 ## Who is it for?

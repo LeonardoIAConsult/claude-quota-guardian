@@ -37,7 +37,9 @@ Use this output to fill "Current State of Files" (one row per changed file, with
 
 ## Step 2 — Write the checkpoint file
 
-Write to the `checkpoint` path from Step 1, with this exact structure (fill in real content from this session — no placeholders):
+Write to the `checkpoint` path from Step 1, with this exact structure (fill in real content from this session — no placeholders).
+
+**Write the content dense (caveman style) to minimize resume tokens.** The whole point of this checkpoint is that the NEXT session spends as few tokens as possible re-reading it. So in the prose you fill in: drop articles (a/an/the) and filler (just/really/basically/simply), use fragments over full sentences, prefer short words. This is a compression directive for the fill-in text ONLY — do NOT drop any of the sections below, do NOT abbreviate section headers, and keep all technical terms, identifiers, file paths, error strings, and code/command blocks EXACT and verbatim (never caveman-compress those — a mangled path or error breaks resume). Evidence refs stay precise. Dense but complete beats short but lossy.
 
 ```markdown
 # Checkpoint — <ISO timestamp>
