@@ -138,6 +138,29 @@ test('fetchUsage session (5h) drives the block when it is the hottest', (t) => {
   assert.strictEqual(result.topWindow.kind, 'session');
 });
 
+test('fetchUsage treats an unknown account-wide window (no scope) as blocking', (t) => {
+  withHome(t, validCreds());
+  t.mock.method(cp, 'execFileSync', () => JSON.stringify({
+    data: {
+      limits: [
+        { kind: 'weekly_all', percent: 30, resets_at: 'r1', scope: null },
+        // a future account-wide window Anthropic might add, with no scope:
+        { kind: 'monthly_all', percent: 96, resets_at: 'r2', scope: null },
+        // surface-scoped cap must stay advisory (does not gate the CLI turn):
+        { kind: 'weekly_scoped', percent: 100, resets_at: 'r3', scope: { surface: { display_name: 'Cowork' } } },
+      ],
+    },
+  }));
+
+  const result = usageApi.fetchUsage();
+  // unknown-but-account-wide (96) drives the block; surface-scoped 100 ignored
+  assert.strictEqual(result.pct, 96);
+  assert.strictEqual(result.topWindow.kind, 'monthly_all');
+  assert.strictEqual(result.scoped.length, 1);
+  assert.strictEqual(result.scoped[0].label, 'Cowork');
+  assert.strictEqual(result.scoped[0].blocking, false);
+});
+
 test('fetchUsage never passes the token through argv', (t) => {
   withHome(t, validCreds());
   let seenArgs = null;

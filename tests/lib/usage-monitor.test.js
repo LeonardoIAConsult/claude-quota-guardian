@@ -345,16 +345,30 @@ test('getStatus falls back to ccusage when the usage API has no credentials', (t
   assert.strictEqual(status.planResetAt, 'cc-reset');
 });
 
-test('getStatus reports "both" when context and plan both hit', (t) => {
+test('getStatus lets the real plan quota own the block (context demoted to fallback)', (t) => {
   t.mock.method(cp, 'execFileSync', () => JSON.stringify({
     blocks: [{ endTime: 'reset-time', tokenLimitStatus: { percentUsed: 99.7 } }],
   }));
 
+  // Both context (99.6% of the fixture) and plan (99.7%) are over threshold, but
+  // with a real plan-quota signal present the context estimate is a fallback and
+  // must not co-drive the block: the trigger is 'plan', never 'both'.
   const status = getStatus({
     transcriptPath: path.join(FIXTURES, 'transcript-99-6pct.jsonl'),
     config: { plan: 'pro', thresholds: { context: 0.995, plan: 0.995 } },
   });
   assert.strictEqual(status.anyAtThreshold, true);
-  assert.strictEqual(status.triggeredBy, 'both');
+  assert.strictEqual(status.triggeredBy, 'plan');
   assert.strictEqual(status.planResetAt, 'reset-time');
+});
+
+test('context fallback still blocks when NO real plan signal exists', () => {
+  // plan 'none' + no usageApi/rate_limit => context is the only signal, so it
+  // must still hard-block (protects API-key users with no quota endpoint).
+  const status = getStatus({
+    transcriptPath: path.join(FIXTURES, 'transcript-99-6pct.jsonl'),
+    config: { plan: 'none', thresholds: { context: 0.995, plan: 0.995 } },
+  });
+  assert.strictEqual(status.anyAtThreshold, true);
+  assert.strictEqual(status.triggeredBy, 'context');
 });
