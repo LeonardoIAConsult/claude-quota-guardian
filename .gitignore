@@ -1,3 +1,6 @@
 node_modules/
 *.tmp
 .*.tmp
+# Local hook backups created when toggling Guardian on/off (real hooks live in git)
+hooks/*.guardian-bak
+hooks/*.active-*
