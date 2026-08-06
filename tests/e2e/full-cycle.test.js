@@ -28,7 +28,7 @@ test('full cycle: trigger -> checkpoint -> resume -> idempotent', () => {
   fs.mkdirSync(path.join(home, '.claude', 'session-continuity'), { recursive: true });
   fs.writeFileSync(
     path.join(home, '.claude', 'session-continuity', 'config.json'),
-    JSON.stringify({ plan: 'none' })
+    JSON.stringify({ plan: 'none', blockOnContext: true })
   );
 
   // 1. Threshold hit -> PostToolUse hook blocks and writes pending.json

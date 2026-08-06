@@ -57,7 +57,7 @@ test('check-usage writes pending.json and blocks at threshold', () => {
   fs.mkdirSync(path.join(home, '.claude', 'session-continuity'), { recursive: true });
   fs.writeFileSync(
     path.join(home, '.claude', 'session-continuity', 'config.json'),
-    JSON.stringify({ plan: 'none' })
+    JSON.stringify({ plan: 'none', blockOnContext: true })
   );
 
   const out = runHook(
@@ -78,8 +78,30 @@ test('check-usage writes pending.json and blocks at threshold', () => {
   fs.rmSync(home, { recursive: true, force: true });
 });
 
+test('check-usage default (blockOnContext off) does NOT block on context alone with no quota signal', () => {
+  // Locks in the product default: blocking is 100% quota-driven. With no config
+  // (DEFAULTS: blockOnContext false, plan none) and no quota signal, a context
+  // window at 99.6% must NOT create a pending or block.
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-home-'));
+  const out = runHook(
+    { transcript_path: path.join(FIXTURES, 'transcript-99-6pct.jsonl'), cwd: 'C:\\fake\\project', session_id: 's1' },
+    { CQG_HOME: home }
+  );
+  assert.strictEqual(out.trim(), '');
+  assert.strictEqual(fs.existsSync(pendingFileFor(home, 'C:\\fake\\project')), false);
+  // heartbeat still flows (watcher needs it)
+  const state = JSON.parse(fs.readFileSync(stateFileFor(home, 'C:\\fake\\project'), 'utf8'));
+  assert.ok(state.contextPct >= 99.5);
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
 test('check-usage does not overwrite an existing pending with a new trigger', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-home-'));
+  fs.mkdirSync(path.join(home, '.claude', 'session-continuity'), { recursive: true });
+  fs.writeFileSync(
+    path.join(home, '.claude', 'session-continuity', 'config.json'),
+    JSON.stringify({ plan: 'none', blockOnContext: true })
+  );
   const pendingFile = pendingFileFor(home, 'C:\\fake\\project');
   fs.mkdirSync(path.dirname(pendingFile), { recursive: true });
   fs.writeFileSync(pendingFile, JSON.stringify({
@@ -130,7 +152,7 @@ test('check-usage warns notify-only but never blocks or pends for claude-desktop
   fs.mkdirSync(path.join(home, '.claude', 'session-continuity'), { recursive: true });
   fs.writeFileSync(
     path.join(home, '.claude', 'session-continuity', 'config.json'),
-    JSON.stringify({ plan: 'none' })
+    JSON.stringify({ plan: 'none', blockOnContext: true })
   );
 
   const out = runHook(
@@ -156,7 +178,7 @@ test('check-usage hard-blocks on CLI from a cached rate_limit signal alone, even
   fs.mkdirSync(path.join(home, '.claude', 'session-continuity'), { recursive: true });
   fs.writeFileSync(
     path.join(home, '.claude', 'session-continuity', 'config.json'),
-    JSON.stringify({ plan: 'none' })
+    JSON.stringify({ plan: 'none', blockOnContext: true })
   );
 
   // hooks/statusline.js caches rate_limits here on its own cadence -- seed it
