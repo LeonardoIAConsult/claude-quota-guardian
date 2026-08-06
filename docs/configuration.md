@@ -4,16 +4,18 @@ claude-quota-guardian reads `~/.claude/session-continuity/config.json`. All fiel
 
 | Field | Default | Description |
 |---|---|---|
-| `plan` | `"none"` | `"none"` \| `"pro"` \| `"max5x"` \| `"max20x"`. `"none"` disables plan-quota checks (context-window monitoring still runs). Any other value enables `ccusage`-based plan checks. |
-| `thresholds.context` | `0.986` | Fraction (0-1) of the model's context window that hard-blocks tools on the terminal (CLI) surface. |
-| `thresholds.plan` | `0.986` | Fraction (0-1) of the plan's quota that triggers a checkpoint. |
+| `plan` | `"none"` | `"none"` \| `"pro"` \| `"max5x"` \| `"max20x"`. Controls only the legacy `ccusage`-based plan-% path. `"none"` disables it; your **real** account quota via `usageApi` (below, on by default) runs regardless and is the primary signal. |
+| `thresholds.context` | `0.986` | Fraction (0-1) of the model's context window used as the *fallback* block threshold. Only applies when `blockOnContext` is `true` (see below); by default the context estimate never blocks. |
+| `thresholds.plan` | `0.986` | Fraction (0-1) of your real account quota (session 5h / weekly / per-model) that triggers a checkpoint and hard-block on the terminal (CLI) surface. This is the primary, default trigger. |
+| `blockOnContext` | `false` | Default `false`: blocking is 100% driven by real account quota; the local transcript context estimate is measured/displayed but never blocks (it overshoots on large/1M-token windows and Claude Code auto-compacts context anyway). Set `true` to opt the context estimate back in as a **fallback** block — it then fires only when no real quota signal is available (e.g. an API-key session with no OAuth token). |
+| `scoped` | `{ enabled: true, warnPct: 85 }` | Per-model (scoped) quota warning. Session + weekly gate every model and drive the hard block; a scoped cap (e.g. Fable) limits one model only, so it is **notify-only** — Guardian warns once per reset period when a model enters `[warnPct, 100]` but never blocks, since other models still work. `enabled: false` silences it. |
 | `thresholds.desktopWarn` | `0.96` | Notify-only warning threshold for the Claude Code Desktop surface (context %) — set below the hard threshold so Desktop gets warned before the wall. Desktop also gets an account-quota warn at `thresholds.plan`. Desktop is never hard-blocked. Set to `null` to silence Desktop entirely. |
 | `providers.codex` | `{ enabled: true, warnPct: 90, stalenessMinutes: 20, renotifyMinutes: 15 }` | Notify-only monitoring of OpenAI Codex CLI sessions (see [Other AI providers](#other-ai-providers-notify-only) below). `warnPct` is a percentage (0-100). |
 | `planTokenLimit` | `null` | Tokens in your plan's 5h window. Needed for plan-% on `ccusage` >=20 (see below). `null` → plan-% disabled, context-% still runs. |
 | `planCheckIntervalToolCalls` | `5` | Throttles the `ccusage` subprocess (1-2s typical, shells out via `npx`): only re-runs it once every N `PostToolUse`/`Stop` checks, reusing the last reading from `state.json` in between. The real account-wide `rate_limits` signal (see below) is cached separately and is never throttled by this setting. |
 | `watcherIntervalMinutes` | `15` | Base watcher polling cadence. `adaptiveWatcher.tiers` shortens this as usage climbs (default: 3min at 90%, 1min at 98%). |
 | `notifications.enabled` | `true` | When `false`, the watcher and hooks still write state/pending files but skip OS notifications. |
-| `usageApi` | `{ enabled: true, cacheSeconds: 60, timeoutMs: 5000 }` | Exact account-wide 5h/7d usage from Anthropic's OAuth usage endpoint (see [Exact account-wide quota](#exact-account-wide-quota-oauth-usage-api) below). `enabled: false` reverts to the statusline/ccusage signals only. |
+| `usageApi` | `{ enabled: true, cacheSeconds: 60, timeoutMs: 5000 }` | Exact account-wide usage from your account's OAuth usage endpoint — all real windows: **session (5h)**, **weekly (all models)** and **per-model** caps (e.g. Fable). Session + weekly drive the block; per-model feeds the `scoped` warning. Token read from Claude Code's credentials file or the macOS Keychain. `enabled: false` reverts to the statusline/ccusage signals only. See [Exact account-wide quota](#exact-account-wide-quota-oauth-usage-api). |
 
 ## Detection architecture
 
@@ -33,7 +35,7 @@ Once a checkpoint is pending, `check-usage.js`/`heartbeat-stop.js` re-notify eve
 
 **Terminal-only enforcement:** every Claude Code transcript line is stamped with an `entrypoint` field (`"cli"`, `"claude-desktop"`, ...) — `lib/usage-monitor.js`'s `getEntrypoint` reads it back out of the transcript, and `lib/threshold-check.js` enforces on exactly one value:
 
-- **Terminal** (`entrypoint === "cli"`): full hard-block flow above — `thresholds.context` (98.6%) creates a pending checkpoint and `enforce-checkpoint.js` really blocks tools until `/continuity-checkpoint` runs.
+- **Terminal** (`entrypoint === "cli"`): full hard-block flow above — when your real account quota (session/weekly) crosses `thresholds.plan` it creates a pending checkpoint and `enforce-checkpoint.js` really blocks tools until `/continuity-checkpoint` runs. (The context estimate only participates when `blockOnContext: true`, as a fallback.)
 - **Claude Code Desktop** (`entrypoint === "claude-desktop"`): notify-only tier, like non-Claude providers. At `thresholds.desktopWarn` (96%) it warns about conversation context (fix: open a fresh conversation); at `thresholds.plan` it warns about the account-wide quota (fix: wait for the reset — a new conversation does not help). Re-notified at most every 5 minutes, never blocked, never creates `pending.json`.
 - **Everything else** (unknown future surfaces, or a transcript with no `entrypoint` stamp): heartbeat-only — `state.json` keeps updating for the watcher's adaptive polling, nothing else.
 
