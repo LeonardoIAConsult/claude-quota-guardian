@@ -44,7 +44,7 @@ test('heartbeat-stop creates a pending checkpoint at threshold but never emits d
   fs.mkdirSync(path.join(home, '.claude', 'session-continuity'), { recursive: true });
   fs.writeFileSync(
     path.join(home, '.claude', 'session-continuity', 'config.json'),
-    JSON.stringify({ plan: 'none' })
+    JSON.stringify({ plan: 'none', blockOnContext: true })
   );
 
   const out = runHook(
@@ -68,7 +68,7 @@ test('heartbeat-stop never pends for a non-CLI surface, even above the hard-bloc
   fs.mkdirSync(path.join(home, '.claude', 'session-continuity'), { recursive: true });
   fs.writeFileSync(
     path.join(home, '.claude', 'session-continuity', 'config.json'),
-    JSON.stringify({ plan: 'none' })
+    JSON.stringify({ plan: 'none', blockOnContext: true })
   );
 
   const out = runHook(
@@ -92,7 +92,7 @@ test('heartbeat-stop creates a pending checkpoint from a cached rate_limit signa
   fs.mkdirSync(path.join(home, '.claude', 'session-continuity'), { recursive: true });
   fs.writeFileSync(
     path.join(home, '.claude', 'session-continuity', 'config.json'),
-    JSON.stringify({ plan: 'none' })
+    JSON.stringify({ plan: 'none', blockOnContext: true })
   );
 
   const statePath = stateFileFor(home, 'C:\\fake\\project');

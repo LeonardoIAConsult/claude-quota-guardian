@@ -16,9 +16,30 @@ node -e "const c=require('crypto'),p=require('path'),fs=require('fs'),os=require
 
 This prints a JSON object with `root`, `ts`, `checkpoint`, and `pending` paths. Use these exact paths in the next steps.
 
+## Step 1b — Capture git state (evidence, not memory)
+
+If the project is a git repo, snapshot its real state so the checkpoint records what actually changed on disk — not what you remember changing. Run in Bash:
+
+```bash
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  echo "BRANCH: $(git rev-parse --abbrev-ref HEAD)"
+  echo "HEAD: $(git rev-parse --short HEAD) — $(git log -1 --pretty=%s)"
+  echo "CHANGED FILES (git status --porcelain):"
+  git status --porcelain
+  echo "DIFFSTAT:"
+  git diff --stat HEAD
+else
+  echo "NOT_A_GIT_REPO"
+fi
+```
+
+Use this output to fill "Current State of Files" (one row per changed file, with its git status code) and to cite the HEAD hash under "What WORKED". If it prints `NOT_A_GIT_REPO`, reconstruct the file list from this session's own edits instead.
+
 ## Step 2 — Write the checkpoint file
 
-Write to the `checkpoint` path from Step 1, with this exact structure (fill in real content from this session — no placeholders):
+Write to the `checkpoint` path from Step 1, with this exact structure (fill in real content from this session — no placeholders).
+
+**Write the content dense (caveman style) to minimize resume tokens.** The whole point of this checkpoint is that the NEXT session spends as few tokens as possible re-reading it. So in the prose you fill in: drop articles (a/an/the) and filler (just/really/basically/simply), use fragments over full sentences, prefer short words. This is a compression directive for the fill-in text ONLY — do NOT drop any of the sections below, do NOT abbreviate section headers, and keep all technical terms, identifiers, file paths, error strings, and code/command blocks EXACT and verbatim (never caveman-compress those — a mangled path or error breaks resume). Evidence refs stay precise. Dense but complete beats short but lossy.
 
 ```markdown
 # Checkpoint — <ISO timestamp>
@@ -36,9 +57,18 @@ Write to the `checkpoint` path from Step 1, with this exact structure (fill in r
 <bullet list of remaining approaches/ideas not yet attempted>
 
 ## Current State of Files
-| File | State |
-|---|---|
-<one row per file touched this session, with current status>
+<From Step 1b: BRANCH <name> @ HEAD <short-hash>. If NOT_A_GIT_REPO, say so.>
+
+| File | Git status | State |
+|---|---|---|
+<one row per changed file from Step 1b — git status code (M/A/D/??) + a one-line description of its current status>
+
+## Task Status (evidence-based)
+<Classify every task. Each line MUST carry an evidence ref (file:line, test result, command output, or transcript note). Never mark DONE/PARTIALLY DONE from a plan alone — status needs evidence of actual work.>
+- DONE: <task> — evidence: <impl ref>; verification: <test/tool ref or "not recorded">
+- PARTIALLY DONE: <task> — evidence: <started-work ref>; missing: <what's left>
+- NOT DONE: <task> — evidence: <TODO, failing test, or absent artifact>
+- DEFERRED (park/hold): <task> — user wording + reopen condition (do NOT silently reopen)
 
 ## Decisions Made
 <bullet list of decisions and their rationale>

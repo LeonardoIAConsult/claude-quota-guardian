@@ -14,9 +14,9 @@ Cualquiera que trabaje sesiones largas con un agente de IA conoce el momento: ll
 
 Cuando una **sesión de Claude Code en terminal** se acerca a su límite (contexto de la conversación o cuota 5h/7d del plan), Guardian:
 
-1. **Detecta el umbral** (99.6% por defecto) tras cada tool call y cada turno — incluye la cuota real de tu cuenta Pro/Max vía `rate_limits`, no solo estimaciones locales.
+1. **Detecta el umbral** (98.6% por defecto) tras cada tool call y cada turno — incluye la cuota real de tu cuenta Pro/Max vía `rate_limits`, no solo estimaciones locales. Un aviso **predictivo** (pendiente por ritmo de consumo tokens/min) puede adelantarse aún más al muro.
 2. **Frena el trabajo nuevo** con un bloqueo real de herramientas (hook `PreToolUse`): el agente no puede seguir quemando tokens sin guardar primero.
-3. **Fuerza un checkpoint estructurado** (`/continuity-checkpoint`): qué se estaba construyendo, qué funcionó (con evidencia), qué NO funcionó y por qué, estado de cada archivo, decisiones tomadas, y el próximo paso exacto.
+3. **Fuerza un checkpoint estructurado** (`/continuity-checkpoint`): qué se estaba construyendo, qué funcionó (con evidencia), qué NO funcionó y por qué, estado de cada archivo, decisiones tomadas, y el próximo paso exacto. Se escribe **denso** (estilo caveman: sin relleno, fragmentos; identificadores/rutas/errores intactos) para que al reabrir gastes los mínimos tokens posibles en releerlo.
 4. **Avisa cuando la cuota se reinicia** (watcher en segundo plano con notificaciones del sistema, cadencia adaptativa 15→3→1 min según qué tan llena está la sesión).
 5. **Retoma solo**: al reabrir Claude Code en ese proyecto, un hook `SessionStart` inyecta el checkpoint completo como contexto. El agente anuncia el próximo paso y sigue — cero re-explicación.
 
@@ -25,7 +25,7 @@ Cuando una **sesión de Claude Code en terminal** se acerca a su límite (contex
        |
        |-- bajo el umbral -> no-op
        |
-       `-- >= 99.6% -> pending.json + notificación OS + bloqueo
+       `-- >= 98.6% -> pending.json + notificación OS + bloqueo
                         |
                         v
                 Claude ejecuta /continuity-checkpoint
@@ -54,7 +54,8 @@ Sin relanzamiento automático: vos decidís cuándo reabrir. Guardian solo se en
 - **Señal real, no estimada**: usa el `rate_limits` account-wide (5h/7d) que Claude Code expone — el mismo número que ve tu cuenta.
 - **Instalación de 1 comando, desinstalación limpia**: mergea sus hooks en `settings.json` sin tocar los tuyos; el uninstaller solo quita lo suyo.
 - **Multi-OS**: Windows (Task Scheduler), macOS (launchd), Linux (systemd/cron).
-- **130/130 tests** en Node 18 y 20 (`npm test`, CI incluido).
+- **Reporte de actividad**: `node scripts/report.js` genera un HTML con lo que Guardian hizo de verdad — checkpoints creados, sesiones retomadas y proyectos protegidos. Solo cuenta lo medible; no inventa "tokens ahorrados".
+- **191 tests** en Node 18 y 20 (`npm test`, CI incluido).
 - **Extensible a otros proveedores de IA**: arquitectura de adaptadores; hoy incluye monitoreo notify-only de **OpenAI Codex CLI** (lee sus logs de sesión locales y te avisa antes del corte).
 
 ## ¿Para quién es?

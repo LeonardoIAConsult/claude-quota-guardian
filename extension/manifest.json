@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "Claude Quota Guardian — Monitor",
+  "version": "1.0.0",
+  "description": "Monitorea en vivo tu consumo de Claude: sesión (5h), semanal y por modelo (Fable). Lee tu propia sesión de claude.ai, sin tokens ni credenciales.",
+  "permissions": ["storage", "alarms"],
+  "host_permissions": ["https://claude.ai/*"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Guardian — consumo de Claude",
+    "default_icon": {
+      "16": "icons/icon.png",
+      "48": "icons/icon.png",
+      "128": "icons/icon.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon.png",
+    "48": "icons/icon.png",
+    "128": "icons/icon.png"
+  },
+  "background": {
+    "service_worker": "background.js"
+  }
+}

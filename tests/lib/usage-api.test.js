@@ -78,6 +78,89 @@ test('fetchUsage collapses to the more-pressing window', (t) => {
   assert.ok(result.fetchedAt);
 });
 
+test('fetchUsage parses limits[] into blocking + scoped windows', (t) => {
+  withHome(t, validCreds());
+  t.mock.method(cp, 'execFileSync', () => JSON.stringify({
+    data: {
+      five_hour: { utilization: 11, resets_at: '2026-08-06T22:00:00Z' },
+      seven_day: { utilization: 68, resets_at: '2026-08-08T18:00:00Z' },
+      limits: [
+        { kind: 'session', percent: 11, resets_at: '2026-08-06T22:00:00Z', scope: null },
+        { kind: 'weekly_all', percent: 68, resets_at: '2026-08-08T18:00:00Z', scope: null },
+        { kind: 'weekly_scoped', percent: 37, resets_at: '2026-08-08T18:00:00Z', scope: { model: { display_name: 'Fable' } } },
+      ],
+    },
+  }));
+
+  const result = usageApi.fetchUsage();
+  assert.strictEqual(result.available, true);
+  // block signal = max of session + weekly_all only (Fable excluded)
+  assert.strictEqual(result.pct, 68);
+  assert.strictEqual(result.topWindow.kind, 'weekly_all');
+  assert.strictEqual(result.windows.length, 3);
+  assert.strictEqual(result.scoped.length, 1);
+  assert.strictEqual(result.scoped[0].label, 'Fable');
+  assert.strictEqual(result.scoped[0].pct, 37);
+  assert.strictEqual(result.scoped[0].blocking, false);
+});
+
+test('fetchUsage block signal ignores a maxed scoped model', (t) => {
+  withHome(t, validCreds());
+  t.mock.method(cp, 'execFileSync', () => JSON.stringify({
+    data: {
+      limits: [
+        { kind: 'session', percent: 20, resets_at: 'r1', scope: null },
+        { kind: 'weekly_all', percent: 40, resets_at: 'r2', scope: null },
+        { kind: 'weekly_scoped', percent: 100, resets_at: 'r3', scope: { model: { display_name: 'Fable' } } },
+      ],
+    },
+  }));
+
+  const result = usageApi.fetchUsage();
+  // Fable at 100% must NOT drive the block -- only session/weekly do.
+  assert.strictEqual(result.pct, 40);
+  assert.strictEqual(result.topWindow.kind, 'weekly_all');
+});
+
+test('fetchUsage session (5h) drives the block when it is the hottest', (t) => {
+  withHome(t, validCreds());
+  t.mock.method(cp, 'execFileSync', () => JSON.stringify({
+    data: {
+      limits: [
+        { kind: 'session', percent: 99, resets_at: 'r1', scope: null },
+        { kind: 'weekly_all', percent: 40, resets_at: 'r2', scope: null },
+      ],
+    },
+  }));
+
+  const result = usageApi.fetchUsage();
+  assert.strictEqual(result.pct, 99);
+  assert.strictEqual(result.topWindow.kind, 'session');
+});
+
+test('fetchUsage treats an unknown account-wide window (no scope) as blocking', (t) => {
+  withHome(t, validCreds());
+  t.mock.method(cp, 'execFileSync', () => JSON.stringify({
+    data: {
+      limits: [
+        { kind: 'weekly_all', percent: 30, resets_at: 'r1', scope: null },
+        // a future account-wide window Anthropic might add, with no scope:
+        { kind: 'monthly_all', percent: 96, resets_at: 'r2', scope: null },
+        // surface-scoped cap must stay advisory (does not gate the CLI turn):
+        { kind: 'weekly_scoped', percent: 100, resets_at: 'r3', scope: { surface: { display_name: 'Cowork' } } },
+      ],
+    },
+  }));
+
+  const result = usageApi.fetchUsage();
+  // unknown-but-account-wide (96) drives the block; surface-scoped 100 ignored
+  assert.strictEqual(result.pct, 96);
+  assert.strictEqual(result.topWindow.kind, 'monthly_all');
+  assert.strictEqual(result.scoped.length, 1);
+  assert.strictEqual(result.scoped[0].label, 'Cowork');
+  assert.strictEqual(result.scoped[0].blocking, false);
+});
+
 test('fetchUsage never passes the token through argv', (t) => {
   withHome(t, validCreds());
   let seenArgs = null;

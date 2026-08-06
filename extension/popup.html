@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="popup.css" />
+  <title>Guardian — consumo de Claude</title>
+</head>
+<body>
+  <header>
+    <img src="icons/icon.png" alt="" class="logo" />
+    <div class="head-text">
+      <h1>Quota Guardian</h1>
+      <span id="plan" class="plan"></span>
+    </div>
+    <button id="refresh" title="Actualizar" aria-label="Actualizar">⟳</button>
+  </header>
+
+  <main id="content">
+    <div id="status" class="status">Cargando…</div>
+    <section id="blocking" class="group"></section>
+    <section id="scoped" class="group scoped-group" hidden>
+      <div class="group-label">Por modelo · solo aviso</div>
+      <div id="scoped-rows"></div>
+    </section>
+  </main>
+
+  <footer>
+    <span id="updated" class="updated"></span>
+    <a href="https://claude.ai/settings/usage" target="_blank" rel="noopener">Abrir en Claude ↗</a>
+  </footer>
+
+  <script src="popup.js"></script>
+</body>
+</html>
