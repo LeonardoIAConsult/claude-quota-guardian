@@ -119,6 +119,17 @@ test('getStatus flags context threshold hit when plan is "none"', () => {
   assert.strictEqual(status.planPct, null);
 });
 
+test('getStatus does not block on context when blockOnContext is false', () => {
+  const status = getStatus({
+    transcriptPath: path.join(FIXTURES, 'transcript-99-6pct.jsonl'),
+    config: { plan: 'none', blockOnContext: false, thresholds: { context: 0.995, plan: 0.995 } },
+  });
+  // context is over threshold but demoted -- still measured, never a trigger
+  assert.strictEqual(status.anyAtThreshold, false);
+  assert.strictEqual(status.triggeredBy, null);
+  assert.ok(Math.abs(status.contextPct - 99.6) < 0.001);
+});
+
 test('getStatus reports no threshold hit below limits', () => {
   const status = getStatus({
     transcriptPath: path.join(FIXTURES, 'transcript-50pct.jsonl'),
