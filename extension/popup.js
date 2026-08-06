@@ -93,21 +93,23 @@ async function load(forceFresh) {
   const cached = await chrome.storage.local.get('lastUsage');
   if (cached && cached.lastUsage) render(cached.lastUsage);
 
-  // 2) fresh read
+  // 2) single fresh read: the service worker owns the fetch (and updates the
+  //    badge); we just read back what it returns. No duplicate request.
   if (forceFresh) btn.classList.add('spinning');
-  let fresh;
+  let fresh = null;
   try {
-    fresh = await self.GuardianUsage.fetchUsage();
-  } catch (e) {
-    fresh = { ok: false, reason: 'network' };
+    const resp = await chrome.runtime.sendMessage({ type: 'refresh' });
+    if (resp && resp.usage) fresh = resp.usage;
+  } catch (_) {
+    // worker unavailable -- fall back to whatever is cached
+  }
+  if (!fresh) {
+    const after = await chrome.storage.local.get('lastUsage');
+    fresh = (after && after.lastUsage) || { ok: false, reason: 'network' };
   }
   render(fresh);
-  if (fresh && fresh.ok) chrome.storage.local.set({ lastUsage: fresh, updatedAt: Date.now() });
-  // nudge the worker so the toolbar badge updates too
-  try { chrome.runtime.sendMessage({ type: 'refresh' }); } catch (_) {}
   btn.classList.remove('spinning');
 }
 
 document.getElementById('refresh').addEventListener('click', () => load(true));
-document.addEventListener('DOMContentLoaded', () => load(false));
 load(false);

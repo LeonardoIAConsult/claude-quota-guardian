@@ -16,18 +16,23 @@ function badgeColor(pct) {
 async function refresh() {
   try {
     const u = await self.GuardianUsage.fetchUsage();
-    if (!u.ok) {
+    // Show the badge only when there IS an account-wide reading. topPct is null
+    // when the response carried no gating window -- clear the badge rather than
+    // show a reassuring "0".
+    if (!u.ok || u.topPct == null) {
       await chrome.action.setBadgeText({ text: '' });
-      await chrome.storage.local.set({ lastUsage: u, lastError: u.reason, updatedAt: Date.now() });
-      return;
+      await chrome.storage.local.set({ lastUsage: u, lastError: u.ok ? null : u.reason, updatedAt: Date.now() });
+      return u;
     }
     const p = Math.round(u.topPct);
     await chrome.action.setBadgeText({ text: String(p) });
     await chrome.action.setBadgeBackgroundColor({ color: badgeColor(p) });
     await chrome.storage.local.set({ lastUsage: u, lastError: null, updatedAt: Date.now() });
+    return u;
   } catch (e) {
     await chrome.action.setBadgeText({ text: '' });
     await chrome.storage.local.set({ lastError: String(e && e.message || e), updatedAt: Date.now() });
+    return { ok: false, reason: 'worker-error' };
   }
 }
 
@@ -39,10 +44,12 @@ chrome.runtime.onInstalled.addListener(() => { ensureAlarm(); refresh(); });
 chrome.runtime.onStartup.addListener(() => { ensureAlarm(); refresh(); });
 chrome.alarms.onAlarm.addListener((a) => { if (a.name === ALARM) refresh(); });
 
-// Let the popup ask for an immediate refresh.
+// The popup asks the worker to do the single fetch (which also updates the
+// badge) and hands back the result, so the popup never fires its own duplicate
+// request.
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg && msg.type === 'refresh') {
-    refresh().then(() => sendResponse({ ok: true }));
+    refresh().then((usage) => sendResponse({ ok: true, usage }));
     return true; // async response
   }
   return false;

@@ -18,17 +18,26 @@
     return Math.max(0, Math.min(100, x));
   }
 
-  async function getOrgId() {
+  // Ordered list of candidate org ids to try: chat-capable orgs first (the ones
+  // that carry consumption), then any other org with a uuid. Trying in order and
+  // using the first that actually returns usage windows is robust for users in
+  // multiple orgs (e.g. a Team org + personal) where the consuming org may not
+  // advertise a 'chat' capability.
+  async function getOrgIds() {
     const orgs = await fetch(`${CLAUDE}/api/organizations`, { credentials: 'include' })
-      .then((r) => (r.ok ? r.json() : null))
-      .catch(() => null);
-    if (!Array.isArray(orgs) || !orgs.length) return null;
-    // Prefer an org that actually has the chat capability (the one that carries
-    // consumption); fall back to the first with a uuid.
-    const withChat = orgs.find(
-      (o) => o && o.uuid && Array.isArray(o.capabilities) && o.capabilities.includes('chat')
-    );
-    return (withChat || orgs.find((o) => o && o.uuid) || orgs[0]).uuid;
+      .then((r) => (r.ok ? r.json() : null));
+    if (!Array.isArray(orgs) || !orgs.length) return [];
+    const chat = orgs
+      .filter((o) => o && o.uuid && Array.isArray(o.capabilities) && o.capabilities.includes('chat'))
+      .map((o) => o.uuid);
+    const rest = orgs.filter((o) => o && o.uuid).map((o) => o.uuid);
+    return [...new Set([...chat, ...rest])];
+  }
+
+  // Back-compat single-id helper.
+  async function getOrgId() {
+    const ids = await getOrgIds().catch(() => []);
+    return ids[0] || null;
   }
 
   function windowsFrom(raw) {
@@ -61,37 +70,47 @@
   }
 
   async function fetchUsage() {
-    let orgId;
+    let ids;
     try {
-      orgId = await getOrgId();
+      ids = await getOrgIds();
     } catch {
       return { ok: false, reason: 'network' };
     }
-    if (!orgId) return { ok: false, reason: 'not-logged-in' };
+    if (!ids.length) return { ok: false, reason: 'not-logged-in' };
 
-    let res;
-    try {
-      res = await fetch(`${CLAUDE}/api/organizations/${orgId}/usage`, { credentials: 'include' });
-    } catch {
-      return { ok: false, reason: 'network' };
+    // Try each candidate org until one returns real usage windows.
+    let lastReason = 'no-windows';
+    for (const orgId of ids) {
+      let res;
+      try {
+        res = await fetch(`${CLAUDE}/api/organizations/${orgId}/usage`, { credentials: 'include' });
+      } catch {
+        lastReason = 'network';
+        continue;
+      }
+      if (res.status === 401 || res.status === 403) { lastReason = 'not-logged-in'; continue; }
+      if (!res.ok) { lastReason = 'http-' + res.status; continue; }
+
+      let raw;
+      try {
+        raw = await res.json();
+      } catch {
+        lastReason = 'bad-json';
+        continue;
+      }
+
+      const windows = windowsFrom(raw);
+      if (!windows.length) { lastReason = 'no-windows'; continue; }
+
+      const blocking = windows.filter((w) => w.blocking);
+      const scoped = windows.filter((w) => !w.blocking);
+      // null (not 0) when there is no account-wide window, so the badge can tell
+      // "no gating data" apart from a genuine 0%.
+      const topPct = blocking.length ? blocking.reduce((a, b) => (b.pct > a.pct ? b : a)).pct : null;
+      return { ok: true, windows, blocking, scoped, topPct, orgId, fetchedAt: Date.now() };
     }
-    if (res.status === 401 || res.status === 403) return { ok: false, reason: 'not-logged-in' };
-    if (!res.ok) return { ok: false, reason: 'http-' + res.status };
-
-    let raw;
-    try {
-      raw = await res.json();
-    } catch {
-      return { ok: false, reason: 'bad-json' };
-    }
-
-    const windows = windowsFrom(raw);
-    if (!windows.length) return { ok: false, reason: 'no-windows' };
-    const blocking = windows.filter((w) => w.blocking);
-    const scoped = windows.filter((w) => !w.blocking);
-    const topPct = blocking.length ? blocking.reduce((a, b) => (b.pct > a.pct ? b : a)).pct : 0;
-    return { ok: true, windows, blocking, scoped, topPct, fetchedAt: Date.now() };
+    return { ok: false, reason: lastReason };
   }
 
-  root.GuardianUsage = { fetchUsage, getOrgId, windowsFrom, clampPct };
+  root.GuardianUsage = { fetchUsage, getOrgId, getOrgIds, windowsFrom, clampPct };
 })(typeof self !== 'undefined' ? self : globalThis);
