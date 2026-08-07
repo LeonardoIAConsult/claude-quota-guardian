@@ -1,0 +1,13 @@
+{
+  "name": "claude-quota-guardian",
+  "description": "Watches your real Claude account quota (5h session, weekly, per-model) and, right before the cutoff, forces a resumable checkpoint so the next session continues with almost no tokens.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Leonardo Antolinez",
+    "url": "https://www.leonardoantolinez.com"
+  },
+  "homepage": "https://www.leonardoantolinez.com/guardian/",
+  "repository": "https://github.com/LeonardoIAConsult/claude-quota-guardian",
+  "license": "MIT",
+  "keywords": ["quota", "checkpoint", "continuity", "usage", "session", "resume"]
+}

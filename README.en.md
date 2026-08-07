@@ -88,7 +88,18 @@ Install: `chrome://extensions` → Developer mode → **Load unpacked** → the 
 - Node.js >= 18
 - Claude Code (CLI) with hook support
 
-## Quick install
+## Install
+
+### Option A — As a Claude Code plugin (1 command)
+
+```
+/plugin marketplace add LeonardoIAConsult/claude-quota-guardian
+/plugin install claude-quota-guardian@claude-quota-guardian
+```
+
+Loads the four hooks + the `/continuity-checkpoint` command. Delivers the core loop (detect → block → checkpoint → auto-resume). The **quota-reset watcher** (notifies while Claude is closed) is exclusive to Option B. Details: [docs/plugin-packaging.md](docs/plugin-packaging.md).
+
+### Option B — Standalone (full feature set)
 
 ```bash
 git clone <repo-url> ~/.claude/claude-quota-guardian

@@ -4,3 +4,12 @@ node_modules/
 # Local hook backups created when toggling Guardian on/off (real hooks live in git)
 hooks/*.guardian-bak
 hooks/*.active-*
+# Never commit secrets (Guardian reads credentials at runtime, never stores them)
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.json
+service-account*.json
