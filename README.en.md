@@ -63,10 +63,16 @@ Install: `chrome://extensions` → Developer mode → **Load unpacked** → the 
 - **The 5h session — the fastest to deplete — is watched explicitly**, not as a side effect.
 - **Zero lost context**: the checkpoint captures what automatic summaries lose — the approaches that failed and why, so they aren't retried.
 - **Zero quota burned blindly**: the hard block prevents the agent from continuing work on a doomed session.
+- **It never leaves you stuck**: if you close without saving the checkpoint, the block lifts on its own once your real quota is back under the threshold. No timer, nothing to remember. And if you need to keep going for a while at your own risk, `/guardian-continue` lifts it.
+- **Your automated routines keep running**: it only stops the terminal sessions that are at the limit. Whatever runs in Desktop or through the SDK is left alone.
+- **One quota check per account**: all your projects share the same reading, and if the endpoint fails, Guardian waits (2, 4, 8… up to 15 min) instead of hammering it. I learned this the hard way: the previous version checked so often that the endpoint answered 429 for hours.
+- **Safe resume**: only the checkpoint Guardian saved in its own folder is loaded automatically. A file from the repo, or a link pointing outside, never becomes context: you see the path and you decide.
+- **Opening an unknown repo runs nothing from that repo**: Guardian never launches programs from the project folder or looks them up by bare name.
+- **A skewed clock or a damaged file won't switch protection off**: readings stamped in the future or with broken data are discarded.
 - **Works on any plan and any OS**: auto-detects only the installing user's quota (Pro/Max/Team) by reading Claude Code's OAuth token — a file on Windows/Linux, the **Keychain on macOS**.
 - **Visual monitor**: browser extension with badge + popup (above).
 - **One-command install, clean uninstall**: merges its hooks into `settings.json` without touching yours; the uninstaller only removes its own.
-- **258 tests** on Node 18 and 20 (`npm test`, CI included).
+- **258 tests** (`npm test`), with CI on Windows, macOS and Linux across Node 18 and 20.
 - **Extensible to other AI providers**: adapter architecture; ships with notify-only monitoring of **OpenAI Codex CLI** today.
 
 ## Who is it for?
@@ -82,6 +88,7 @@ Install: `chrome://extensions` → Developer mode → **Load unpacked** → the 
 - Other providers (Codex today) are **notify-only**: without a hook system there is no blocking and no auto-resume — Guardian warns you in time to ask for a summary before the cutoff.
 - Blocking is **100% driven by your real quota** by default. The local context % is measured and displayed but does not block unless you opt in as a fallback (useful when no quota signal exists — see [docs/configuration.md](docs/configuration.md)).
 - Quota detection requires being logged into Claude Code with a Pro/Max/Team account (OAuth token). With a bare API key there are no session/weekly windows to watch.
+- **Connections it makes**: your own account's usage endpoint at `api.anthropic.com` (with your token, only to read your quota) and Telegram if you turn those notifications on. If you configure `plan` to use ccusage, `npx` may download it from npm. The extension, separately, only talks to `claude.ai` from your browser. Your code never leaves your machine.
 
 ## Requirements
 

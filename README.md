@@ -8,14 +8,14 @@
 
 ## El problema
 
-Cualquiera que trabaje sesiones largas con un agente de IA conoce el momento: llevás horas construyendo algo, la cuota del plan se agota, y la sesión muere a mitad de una tarea. Lo que sigue es peor que el corte: reabrir, re-explicar todo desde cero, y ver al agente re-intentar caminos que ya habían fallado.
+Cualquiera que trabaje sesiones largas con un agente de IA conoce el momento: llevas horas construyendo algo, la cuota del plan se agota, y la sesión muere a mitad de una tarea. Lo que sigue es peor que el corte: reabrir, re-explicar todo desde cero, y ver al agente re-intentar caminos que ya habían fallado.
 
 ## Qué hace Guardian
 
 Cuando una **sesión de Claude Code en terminal** se acerca al límite **real de tu plan**, Guardian:
 
-1. **Lee tu cuota real** (la misma que ves en Ajustes → Uso), no una estimación. Vía el endpoint de uso de tu cuenta obtiene las tres ventanas: **Sesión (5h)**, **Semanal (todos los modelos)** y los **límites por modelo** (p. ej. Fable). El bloqueo lo gobierna la ventana que gatea todo (sesión o semanal); los límites por modelo **solo avisan** (si se agota un modelo, seguís con otro).
-2. **Frena el trabajo nuevo** con un bloqueo real de herramientas (hook `PreToolUse`): el agente no puede seguir quemando cuota sin guardar primero. Aplica a las sesiones de terminal que están sobre el umbral (la que lo disparó y cualquier otra que lo cruce después); otras sesiones — p. ej. rutinas en Desktop o vía SDK — no se frenan. Si no guardás el checkpoint, el bloqueo se levanta solo cuando tu cuota real vuelve bajo el umbral, o antes con `/guardian-continue`.
+1. **Lee tu cuota real** (la misma que ves en Ajustes → Uso), no una estimación. Vía el endpoint de uso de tu cuenta obtiene las tres ventanas: **Sesión (5h)**, **Semanal (todos los modelos)** y los **límites por modelo** (p. ej. Fable). El bloqueo lo gobierna la ventana que gatea todo (sesión o semanal); los límites por modelo **solo avisan** (si se agota un modelo, sigues con otro).
+2. **Frena el trabajo nuevo** con un bloqueo real de herramientas (hook `PreToolUse`): el agente no puede seguir quemando cuota sin guardar primero. Aplica a las sesiones de terminal que están sobre el umbral (la que lo disparó y cualquier otra que lo cruce después); otras sesiones — p. ej. rutinas en Desktop o vía SDK — no se frenan. Si no guardas el checkpoint, el bloqueo se levanta solo cuando tu cuota real vuelve bajo el umbral, o antes con `/guardian-continue`.
 3. **Fuerza un checkpoint estructurado** (`/continuity-checkpoint`): qué se estaba construyendo, qué funcionó (con evidencia), qué NO funcionó y por qué, estado de cada archivo, decisiones tomadas, y el próximo paso exacto. Se escribe **denso** (estilo caveman: sin relleno, fragmentos; identificadores/rutas/errores intactos) para gastar los mínimos tokens al reabrir.
 4. **Avisa cuando la cuota se reinicia** (watcher en segundo plano con notificaciones del sistema, cadencia adaptativa 15→3→1 min según qué tan llena está la cuenta).
 5. **Retoma solo**: al reabrir Claude Code en ese proyecto, un hook `SessionStart` inyecta el checkpoint completo como contexto (solo el que `/continuity-checkpoint` guarda en la carpeta de continuidad del proyecto; un archivo en otra ruta, p. ej. un CHECKPOINT.md dentro del repo, no se carga solo: se te muestra la ruta para que decidas). El agente anuncia el próximo paso y sigue — cero re-explicación.
@@ -32,12 +32,12 @@ Cuando una **sesión de Claude Code en terminal** se acerca al límite **real de
                 -> escribe checkpoint-<ts>.md
                 -> cierra el turno limpio
                         |
-              (cerrás Claude; la cuota se reinicia después)
+              (cierras Claude; la cuota se reinicia después)
                         |
               quota-watcher (fondo) detecta el reset
               -> notificación: "listo para continuar"
                         |
-              Reabrís Claude en el mismo proyecto
+              Reabres Claude en el mismo proyecto
                         |
                 SessionStart: resume-context.js
                 -> inyecta el checkpoint completo
@@ -45,7 +45,7 @@ Cuando una **sesión de Claude Code en terminal** se acerca al límite **real de
                 Claude anuncia el próximo paso y sigue
 ```
 
-Sin relanzamiento automático: vos decidís cuándo reabrir. Guardian solo se encarga del guardado y la retoma.
+Sin relanzamiento automático: tú decides cuándo reabrir. Guardian solo se encarga del guardado y la retoma.
 
 ## Extensión de navegador (monitor de consumo)
 
@@ -63,25 +63,32 @@ Instalar: `chrome://extensions` → Modo desarrollador → **Cargar descomprimid
 - **La sesión de 5h — la que más rápido se agota — se vigila explícita**, no como efecto secundario.
 - **Cero contexto perdido**: el checkpoint captura lo que un resumen automático pierde — los caminos que fallaron y por qué, para que no se re-intenten.
 - **Cero cuota quemada a ciegas**: el bloqueo duro impide que el agente siga trabajando sobre una sesión condenada.
+- **No te deja trabado**: si cierras sin guardar el checkpoint, el bloqueo se suelta solo cuando tu cuota real vuelve bajo el umbral. No depende de un reloj ni de que te acuerdes de nada. Y si necesitas seguir un rato bajo tu riesgo, `/guardian-continue` lo levanta.
+- **Tus rutinas automáticas siguen corriendo**: solo frena las sesiones de terminal que están en el límite. Lo que corre en Desktop o por SDK no se toca.
+- **Una sola consulta de cuota por cuenta**: todos tus proyectos comparten la misma lectura, y si el endpoint falla, Guardian espera (2, 4, 8… hasta 15 min) en vez de insistir. Lo aprendí a la mala: la versión anterior consultaba tanto que el endpoint respondía 429 durante horas.
+- **Retoma segura**: se carga automáticamente solo el checkpoint que Guardian guardó en su carpeta. Un archivo del repo, o un enlace que apunte afuera, nunca entra como contexto: ves la ruta y decides tú.
+- **Abrir un repo desconocido no ejecuta nada de ese repo**: Guardian nunca lanza programas desde la carpeta del proyecto ni los busca por nombre suelto.
+- **Un reloj desajustado o un archivo dañado no apagan la protección**: las lecturas con fecha futura o datos rotos se descartan.
 - **Funciona para cualquier plan y cualquier OS**: detecta solo la cuota de quien lo instale (Pro/Max/Team) leyendo el token OAuth de Claude Code — archivo en Windows/Linux, **Keychain en macOS**.
 - **Monitor visual**: extensión de navegador con badge + popup (arriba).
 - **Instalación de 1 comando, desinstalación limpia**: mergea sus hooks en `settings.json` sin tocar los tuyos; el uninstaller solo quita lo suyo.
-- **258 tests** en Node 18 y 20 (`npm test`, CI incluido).
+- **258 tests** (`npm test`), con CI en Windows, macOS y Linux sobre Node 18 y 20.
 - **Extensible a otros proveedores de IA**: arquitectura de adaptadores; hoy incluye monitoreo notify-only de **OpenAI Codex CLI**.
 
 ## ¿Para quién es?
 
 - **Usuarios de Claude Code con plan Pro/Max/Team** que chocan contra la ventana de 5h en sesiones intensas.
 - **Devs que corren agentes autónomos** en tareas largas (refactors, auditorías, features multi-archivo) donde un corte a mitad de camino cuesta horas.
-- **Freelancers y equipos chicos** que facturan por resultado y no pueden pagar el costo de re-explicar contexto en cada sesión.
+- **Freelancers y equipos pequeños** que facturan por resultado y no pueden pagar el costo de re-explicar contexto en cada sesión.
 - **Usuarios multi-CLI** que alternan Claude Code y Codex y quieren una sola red de seguridad.
 
 ## Alcance honesto
 
-- El loop completo (detectar → bloquear → checkpoint → retoma automática) aplica a **Claude Code en terminal** (`entrypoint === "cli"`), la única superficie con hooks y un "cerrá el turno" real. **Claude Code Desktop** recibe el tier notify-only: avisos, nunca bloqueo.
+- El loop completo (detectar → bloquear → checkpoint → retoma automática) aplica a **Claude Code en terminal** (`entrypoint === "cli"`), la única superficie con hooks y un "cierra el turno" real. **Claude Code Desktop** recibe el tier notify-only: avisos, nunca bloqueo.
 - Otros proveedores (Codex hoy) son **notify-only**: sin sistema de hooks no hay bloqueo ni retoma automática — Guardian te avisa a tiempo para pedirle un resumen antes del corte.
 - El bloqueo es **100% guiado por tu cuota real** por defecto. El % de contexto local se mide y se muestra, pero no bloquea salvo que lo actives como fallback (útil si no hay señal de cuota, ver [docs/configuration.md](docs/configuration.md)).
 - La detección de cuota requiere estar logueado en Claude Code con una cuenta Pro/Max/Team (token OAuth). Con API key suelta no hay ventanas de sesión/semanal que vigilar.
+- **Conexiones que hace**: el endpoint de uso de tu propia cuenta en `api.anthropic.com` (con tu token, solo para leer tu cuota) y Telegram si activas esas notificaciones. Si configuras `plan` para usar ccusage, `npx` puede descargarlo de npm. La extensión, aparte, solo habla con `claude.ai` desde tu navegador. Tu código no sale de tu máquina.
 
 ## Requisitos
 
