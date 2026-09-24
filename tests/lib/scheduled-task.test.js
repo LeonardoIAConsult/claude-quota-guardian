@@ -15,7 +15,7 @@ test('describeInstall for win32 returns a schtasks command with the interval', (
   assert.strictEqual(desc.files.length, 0);
   assert.strictEqual(desc.commands.length, 1);
   const [cmd, ...args] = desc.commands[0];
-  assert.strictEqual(cmd, 'schtasks');
+  assert.strictEqual(cmd, scheduledTask.schtasksExe());
   assert.ok(args.includes('/mo'));
   assert.ok(args.includes('15'));
   assert.ok(args.some((a) => a.includes(OPTS.watcherPath)));
@@ -71,7 +71,7 @@ test('describeReschedule for win32 re-creates the task with /f and new interval'
   const desc = scheduledTask.describeReschedule('win32', { ...OPTS, intervalMinutes: 3 });
   assert.strictEqual(desc.platform, 'win32');
   const args = desc.commands[0];
-  assert.strictEqual(args[0], 'schtasks');
+  assert.strictEqual(args[0], scheduledTask.schtasksExe());
   assert.ok(args.includes('/create'));
   assert.ok(args.includes('/f'));
   assert.ok(args.includes('/mo'));
@@ -81,7 +81,7 @@ test('describeReschedule for win32 re-creates the task with /f and new interval'
 test('describeUninstall returns the matching teardown commands per platform', () => {
   assert.deepStrictEqual(
     scheduledTask.describeUninstall('win32').commands[0],
-    ['schtasks', '/delete', '/tn', scheduledTask.TASK_NAME, '/f']
+    [scheduledTask.schtasksExe(), '/delete', '/tn', scheduledTask.TASK_NAME, '/f']
   );
 
   const mac = scheduledTask.describeUninstall('darwin');
@@ -92,4 +92,10 @@ test('describeUninstall returns the matching teardown commands per platform', ()
   assert.deepStrictEqual(linux.commands[0], ['systemctl', '--user', 'disable', '--now', 'cqg-watcher.timer']);
   assert.strictEqual(linux.filesToRemove.length, 2);
   assert.match(linux.fallback.removeCronMatching, /cqg-watcher/);
+});
+
+test('schtasks is invoked by absolute System32 path, never by bare name', () => {
+  const exe = scheduledTask.schtasksExe();
+  assert.ok(require('node:path').win32.isAbsolute(exe));
+  assert.match(exe, /\\System32\\schtasks\.exe$/i);
 });

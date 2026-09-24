@@ -2,6 +2,7 @@
 'use strict';
 
 const fs = require('node:fs');
+const path = require('node:path');
 const paths = require('../lib/paths');
 const { atomicWriteFileSync } = require('../lib/atomic-write');
 
@@ -13,6 +14,19 @@ function readStdin() {
   } catch {
     return null;
   }
+}
+
+// Whatever checkpointFile names is injected into the new session as trusted
+// context, and pending.json is a plain local file. Only read a markdown
+// checkpoint from this project's continuity dir (where /continuity-checkpoint
+// writes it) or from the project itself (agents sometimes save it there) --
+// never an arbitrary file such as a credential.
+function allowedCheckpoint(file, cwd) {
+  if (typeof file !== 'string' || !/\.md$/i.test(file)) return false;
+  const norm = (p) => (process.platform === 'win32' ? p.toLowerCase() : p);
+  const target = norm(path.resolve(file));
+  return [paths.projectDir(cwd), cwd]
+    .some((dir) => target.startsWith(norm(path.resolve(dir)) + path.sep));
 }
 
 function main() {
@@ -30,6 +44,9 @@ function main() {
   }
 
   if (!pending || pending.consumed !== false || !pending.checkpointFile) {
+    return;
+  }
+  if (!allowedCheckpoint(pending.checkpointFile, input.cwd)) {
     return;
   }
 

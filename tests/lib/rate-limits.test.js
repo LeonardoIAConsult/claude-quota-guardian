@@ -57,3 +57,9 @@ test('weeklyForModel matches exact tier then prefix', () => {
   assert.strictEqual(weeklyForModel(byModel, 'claude-sonnet-4-6').pct, 30); // prefix match
   assert.strictEqual(weeklyForModel(byModel, 'claude-haiku-4-5'), null);
 });
+
+test('parseRateLimits ignores a __proto__ model key', () => {
+  const r = parseRateLimits({ seven_day___proto__: { used_percentage: 5, resets_at: 1900000000 } });
+  assert.strictEqual(Object.getPrototypeOf(r.byModel), Object.prototype);
+  assert.deepStrictEqual(Object.keys(r.byModel), []);
+});

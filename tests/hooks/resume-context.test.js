@@ -107,3 +107,58 @@ test('resume-context warns when checkpoint is older than 7 days', () => {
 
   fs.rmSync(home, { recursive: true, force: true });
 });
+
+function pendingWith(home, cwd, checkpointFile) {
+  const pendingFile = pendingFileFor(home, cwd);
+  fs.mkdirSync(path.dirname(pendingFile), { recursive: true });
+  atomicWriteFileSync(pendingFile, JSON.stringify({
+    projectPath: cwd, sessionId: 's1', triggeredBy: 'plan', triggeredAt: new Date().toISOString(),
+    checkpointFile, consumed: false,
+  }));
+  return pendingFile;
+}
+
+test('resume-context never injects a file outside the project and its continuity dir', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-home-'));
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-project-'));
+  const secret = path.join(home, 'secret.md');
+  fs.writeFileSync(secret, 'TOP SECRET');
+  const pendingFile = pendingWith(home, cwd, secret);
+
+  const out = runHook({ cwd, source: 'startup' }, { CQG_HOME: home });
+  assert.strictEqual(out.trim(), '');
+  assert.strictEqual(JSON.parse(fs.readFileSync(pendingFile, 'utf8')).consumed, false);
+
+  fs.rmSync(home, { recursive: true, force: true });
+  fs.rmSync(cwd, { recursive: true, force: true });
+});
+
+test('resume-context never injects a non-markdown file, even from its own dir', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-home-'));
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-project-'));
+  const pendingFile = pendingFileFor(home, cwd);
+  const notMd = path.join(path.dirname(pendingFile), 'state.json');
+  fs.mkdirSync(path.dirname(pendingFile), { recursive: true });
+  fs.writeFileSync(notMd, '{}');
+  pendingWith(home, cwd, notMd);
+
+  const out = runHook({ cwd, source: 'startup' }, { CQG_HOME: home });
+  assert.strictEqual(out.trim(), '');
+
+  fs.rmSync(home, { recursive: true, force: true });
+  fs.rmSync(cwd, { recursive: true, force: true });
+});
+
+test('resume-context accepts a checkpoint the agent saved inside the project itself', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-home-'));
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-project-'));
+  const inProject = path.join(cwd, 'CHECKPOINT.md');
+  fs.writeFileSync(inProject, '# Checkpoint\n## Exact Next Step\nship it\n');
+  pendingWith(home, cwd, inProject);
+
+  const out = runHook({ cwd, source: 'startup' }, { CQG_HOME: home });
+  assert.match(JSON.parse(out).hookSpecificOutput.additionalContext, /ship it/);
+
+  fs.rmSync(home, { recursive: true, force: true });
+  fs.rmSync(cwd, { recursive: true, force: true });
+});
