@@ -163,12 +163,12 @@ test('getStatus uses cachedRateLimit as plan% when plan is "none" (no ccusage ne
   const status = getStatus({
     transcriptPath: path.join(FIXTURES, 'transcript-50pct.jsonl'),
     config: { plan: 'none', thresholds: { context: 0.995, plan: 0.995 } },
-    cachedRateLimit: { pct: 99.7, resetAt: '2026-06-20T00:00:00.000Z' },
+    cachedRateLimit: { pct: 99.7, resetAt: '2099-06-20T00:00:00.000Z' },
   });
   assert.strictEqual(status.anyAtThreshold, true);
   assert.strictEqual(status.triggeredBy, 'plan');
   assert.strictEqual(status.planPct, 99.7);
-  assert.strictEqual(status.planResetAt, '2026-06-20T00:00:00.000Z');
+  assert.strictEqual(status.planResetAt, '2099-06-20T00:00:00.000Z');
 });
 
 test('getStatus prefers cachedRateLimit over ccusage plan% only when it is higher', (t) => {
@@ -270,6 +270,7 @@ test('getThrottledPlanUsage returns unavailable for plan "none" without touching
 });
 
 test('getStatus takes plan% from a fresh usage-API cache and skips ccusage entirely', (t) => {
+  withEmptyHome(t);
   let calls = 0;
   t.mock.method(cp, 'execFileSync', () => { calls += 1; return '{}'; });
 
@@ -305,6 +306,7 @@ test('getStatus never touches the usage API unless config enables it explicitly'
 });
 
 test('getStatus still lets a higher cachedRateLimit win over the usage API', (t) => {
+  withEmptyHome(t);
   t.mock.method(cp, 'execFileSync', () => '{}');
 
   const status = getStatus({
@@ -371,4 +373,34 @@ test('context fallback still blocks when NO real plan signal exists', () => {
   });
   assert.strictEqual(status.anyAtThreshold, true);
   assert.strictEqual(status.triggeredBy, 'context');
+});
+
+test('getPlanUsage runs ccusage from Guardian\'s own dir, never the project cwd', (t) => {
+  let opts = null;
+  t.mock.method(cp, 'execFileSync', (_cmd, _args, o) => {
+    opts = o;
+    return JSON.stringify({ blocks: [{ endTime: 'x', tokenLimitStatus: { percentUsed: 1 } }] });
+  });
+
+  getPlanUsage('pro');
+  assert.strictEqual(path.resolve(opts.cwd), path.resolve(__dirname, '..', '..'));
+});
+
+test('getStatus ignores a cached statusline reading whose window already reset', () => {
+  const status = getStatus({
+    transcriptPath: path.join(FIXTURES, 'transcript-50pct.jsonl'),
+    config: { plan: 'none', thresholds: { context: 0.995, plan: 0.995 } },
+    cachedRateLimit: { pct: 99.9, resetAt: new Date(Date.now() - 60_000).toISOString() },
+  });
+  assert.strictEqual(status.planPct, null);
+  assert.strictEqual(status.anyAtThreshold, false);
+});
+
+test('getStatus still uses a cached statusline reading before its reset', () => {
+  const status = getStatus({
+    transcriptPath: path.join(FIXTURES, 'transcript-50pct.jsonl'),
+    config: { plan: 'none', thresholds: { context: 0.995, plan: 0.995 } },
+    cachedRateLimit: { pct: 99.9, resetAt: new Date(Date.now() + 60_000).toISOString() },
+  });
+  assert.strictEqual(status.planPct, 99.9);
 });

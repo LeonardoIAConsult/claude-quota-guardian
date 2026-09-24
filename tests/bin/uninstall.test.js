@@ -177,3 +177,14 @@ test('run orchestrates hooks, command, schedule and optional purge', () => {
   fs.rmSync(home, { recursive: true, force: true });
   delete process.env.CQG_HOME;
 });
+
+test('uninstallCommand removes /guardian-continue too', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-uninstall-'));
+  const commandsDirPath = path.join(dir, 'commands');
+  install.installCommand({ repoRoot: REPO_ROOT, commandsDirPath });
+
+  uninstall.uninstallCommand({ commandsDirPath });
+  assert.ok(!fs.existsSync(path.join(commandsDirPath, 'guardian-continue.md')));
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});

@@ -295,3 +295,212 @@ test('getThrottledUsage drops a stale reading whose window rolled over', (t) => 
 
   assert.strictEqual(result.available, false);
 });
+
+// Like apiResponse, but with resets in the future so the reading is not
+// treated as an already-rolled-over window.
+function liveResponse(fivePct, sevenPct) {
+  const later = (h) => new Date(Date.now() + h * 3600_000).toISOString();
+  return JSON.stringify({
+    data: {
+      five_hour: { utilization: fivePct, resets_at: later(3) },
+      seven_day: { utilization: sevenPct, resets_at: later(48) },
+    },
+  });
+}
+
+test('getThrottledUsage shares one account-wide reading across projects', (t) => {
+  withHome(t, validCreds());
+  let calls = 0;
+  t.mock.method(cp, 'execFileSync', () => { calls += 1; return liveResponse(10, 64); });
+
+  const nowMs = Date.now();
+  // project A has no cache: fetches and stores the shared reading
+  const a = usageApi.getThrottledUsage({ cacheSeconds: 60, cachedApi: null, nowMs });
+  // project B, also with no per-project cache, a few seconds later
+  const b = usageApi.getThrottledUsage({ cacheSeconds: 60, cachedApi: null, nowMs: nowMs + 5_000 });
+
+  assert.strictEqual(calls, 1);
+  assert.strictEqual(a.pct, 64);
+  assert.strictEqual(b.pct, 64);
+  assert.strictEqual(b.due, false);
+});
+
+test('getThrottledUsage backs off after a failed fetch instead of refetching every call', (t) => {
+  withHome(t, validCreds());
+  let calls = 0;
+  t.mock.method(cp, 'execFileSync', () => { calls += 1; return JSON.stringify({ error: 'http-429' }); });
+
+  const nowMs = Date.now();
+  const first = usageApi.getThrottledUsage({ cacheSeconds: 60, cachedApi: null, nowMs });
+  const second = usageApi.getThrottledUsage({ cacheSeconds: 60, cachedApi: null, nowMs: nowMs + 10_000 });
+
+  assert.strictEqual(calls, 1);
+  assert.strictEqual(first.reason, 'http-429');
+  assert.strictEqual(second.available, false);
+  assert.strictEqual(second.reason, 'backoff');
+
+  // once the backoff window passes (2 * 60s after one failure) it retries
+  usageApi.getThrottledUsage({ cacheSeconds: 60, cachedApi: null, nowMs: nowMs + 121_000 });
+  assert.strictEqual(calls, 2);
+});
+
+test('getThrottledUsage backoff grows exponentially and is capped', (t) => {
+  withHome(t, validCreds());
+  t.mock.method(cp, 'execFileSync', () => JSON.stringify({ error: 'http-429' }));
+
+  let nowMs = Date.now();
+  const waits = [];
+  for (let i = 0; i < 6; i++) {
+    usageApi.getThrottledUsage({ cacheSeconds: 60, cachedApi: null, nowMs });
+    const shared = JSON.parse(fs.readFileSync(require('../../lib/paths').apiUsageCachePath(), 'utf8'));
+    waits.push(shared.backoffUntil - nowMs);
+    nowMs = shared.backoffUntil;
+  }
+  assert.deepStrictEqual(waits.slice(0, 3), [120_000, 240_000, 480_000]);
+  assert.strictEqual(Math.max(...waits), 15 * 60 * 1000);
+});
+
+test('getThrottledUsage serves the last good reading during backoff', (t) => {
+  withHome(t, validCreds());
+  let mode = 'ok';
+  let calls = 0;
+  t.mock.method(cp, 'execFileSync', () => {
+    calls += 1;
+    return mode === 'ok' ? liveResponse(10, 70) : JSON.stringify({ error: 'http-429' });
+  });
+
+  const nowMs = Date.now();
+  usageApi.getThrottledUsage({ cacheSeconds: 60, cachedApi: null, nowMs });
+  mode = 'fail';
+  const failed = usageApi.getThrottledUsage({ cacheSeconds: 60, cachedApi: null, nowMs: nowMs + 61_000 });
+  const during = usageApi.getThrottledUsage({ cacheSeconds: 60, cachedApi: null, nowMs: nowMs + 70_000 });
+
+  assert.strictEqual(calls, 2);
+  assert.strictEqual(failed.pct, 70);
+  assert.strictEqual(during.available, true);
+  assert.strictEqual(during.pct, 70);
+});
+
+test('getThrottledUsage does not back off when there are no credentials', (t) => {
+  withHome(t, null);
+  const nowMs = Date.now();
+  usageApi.getThrottledUsage({ cacheSeconds: 60, cachedApi: null, nowMs });
+  assert.ok(!fs.existsSync(require('../../lib/paths').apiUsageCachePath()));
+});
+
+function writeSharedFile(obj) {
+  const file = require('../../lib/paths').apiUsageCachePath();
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(obj));
+}
+
+test('getThrottledUsage ignores a reading stamped in the future (clock ran ahead)', (t) => {
+  withHome(t, validCreds());
+  let calls = 0;
+  t.mock.method(cp, 'execFileSync', () => { calls += 1; return liveResponse(10, 97); });
+  writeSharedFile({ reading: { pct: 1, fetchedAt: '9999-01-01T00:00:00Z', resetAt: null } });
+
+  const result = usageApi.getThrottledUsage({ cacheSeconds: 60, cachedApi: null, nowMs: Date.now() });
+  assert.strictEqual(calls, 1);
+  assert.strictEqual(result.pct, 97);
+});
+
+test('getThrottledUsage ignores readings with an out-of-range pct', (t) => {
+  withHome(t, validCreds());
+  let calls = 0;
+  t.mock.method(cp, 'execFileSync', () => { calls += 1; return liveResponse(10, 50); });
+  const nowMs = Date.now();
+  writeSharedFile({ reading: { pct: -500, fetchedAt: new Date(nowMs).toISOString() } });
+
+  const result = usageApi.getThrottledUsage({ cacheSeconds: 60, cachedApi: null, nowMs });
+  assert.strictEqual(calls, 1);
+  assert.strictEqual(result.pct, 50);
+});
+
+test('getThrottledUsage ignores a backoff beyond the maximum window', (t) => {
+  withHome(t, validCreds());
+  let calls = 0;
+  t.mock.method(cp, 'execFileSync', () => { calls += 1; return liveResponse(10, 50); });
+  writeSharedFile({ failures: 3, backoffUntil: 8.64e15 });
+
+  const result = usageApi.getThrottledUsage({ cacheSeconds: 60, cachedApi: null, nowMs: Date.now() });
+  assert.strictEqual(calls, 1);
+  assert.strictEqual(result.available, true);
+});
+
+test('getThrottledUsage still backs off when the stored failure count is corrupt', (t) => {
+  withHome(t, validCreds());
+  t.mock.method(cp, 'execFileSync', () => JSON.stringify({ error: 'http-429' }));
+  const nowMs = Date.now();
+  writeSharedFile({ failures: -1000 });
+
+  usageApi.getThrottledUsage({ cacheSeconds: 60, cachedApi: null, nowMs });
+  const shared = JSON.parse(fs.readFileSync(require('../../lib/paths').apiUsageCachePath(), 'utf8'));
+  assert.strictEqual(shared.backoffUntil - nowMs, 120_000);
+});
+
+test('getThrottledUsage drops malformed window entries from a stored reading', (t) => {
+  withHome(t, validCreds());
+  t.mock.method(cp, 'execFileSync', () => { throw new Error('must not fetch'); });
+  const nowMs = Date.now();
+  writeSharedFile({
+    reading: {
+      pct: 40,
+      fetchedAt: new Date(nowMs - 1000).toISOString(),
+      resetAt: new Date(nowMs + 3600_000).toISOString(),
+      windows: [null, { label: 'Semanal', pct: 40 }],
+      scoped: [null, { label: 'Fable', pct: 'x' }],
+    },
+  });
+
+  const result = usageApi.getThrottledUsage({ cacheSeconds: 60, cachedApi: null, nowMs });
+  assert.deepStrictEqual(result.windows, [{ label: 'Semanal', pct: 40 }]);
+  assert.deepStrictEqual(result.scoped, []);
+});
+
+test('getThrottledUsage never lets a failed fetch overwrite a newer reading stored meanwhile', (t) => {
+  withHome(t, validCreds());
+  const nowMs = Date.now();
+  const cacheFile = require('../../lib/paths').apiUsageCachePath();
+  const older = { pct: 85, fetchedAt: new Date(nowMs - 120_000).toISOString(), resetAt: new Date(nowMs + 3600_000).toISOString() };
+  const newer = { pct: 96, fetchedAt: new Date(nowMs - 1_000).toISOString(), resetAt: new Date(nowMs + 3600_000).toISOString() };
+  writeSharedFile({ reading: older });
+
+  // while "our" fetch is in flight, another session stores a fresher reading; ours then fails
+  t.mock.method(cp, 'execFileSync', () => {
+    fs.writeFileSync(cacheFile, JSON.stringify({ reading: newer, failures: 0, backoffUntil: null }));
+    return JSON.stringify({ error: 'http-429' });
+  });
+
+  const result = usageApi.getThrottledUsage({ cacheSeconds: 60, cachedApi: null, nowMs });
+  assert.strictEqual(result.pct, 96);
+  const shared = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
+  assert.strictEqual(shared.reading.pct, 96);
+});
+
+test('getThrottledUsage also sanitizes the per-project cached reading', (t) => {
+  withHome(t, validCreds());
+  let calls = 0;
+  t.mock.method(cp, 'execFileSync', () => { calls += 1; return liveResponse(10, 91); });
+
+  const nowMs = Date.now();
+  const cachedApi = { pct: 5, fetchedAt: '9999-01-01T00:00:00Z', resetAt: new Date(nowMs + 3600_000).toISOString() };
+  const result = usageApi.getThrottledUsage({ cacheSeconds: 60, cachedApi, nowMs });
+  assert.strictEqual(calls, 1);
+  assert.strictEqual(result.pct, 91);
+});
+
+test('getThrottledUsage does not adopt a newer reading stored meanwhile if its window already reset', (t) => {
+  withHome(t, validCreds());
+  const nowMs = Date.now();
+  const cacheFile = require('../../lib/paths').apiUsageCachePath();
+  const rolled = { pct: 12, fetchedAt: new Date(nowMs - 1_000).toISOString(), resetAt: new Date(nowMs - 500).toISOString() };
+  t.mock.method(cp, 'execFileSync', () => {
+    fs.mkdirSync(path.dirname(cacheFile), { recursive: true });
+    fs.writeFileSync(cacheFile, JSON.stringify({ reading: rolled }));
+    return JSON.stringify({ error: 'http-429' });
+  });
+
+  const result = usageApi.getThrottledUsage({ cacheSeconds: 60, cachedApi: null, nowMs });
+  assert.strictEqual(result.available, false);
+});

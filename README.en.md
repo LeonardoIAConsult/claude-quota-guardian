@@ -15,7 +15,7 @@ Anyone who runs long sessions with an AI agent knows the moment: you're hours in
 When a **Claude Code terminal session** approaches your **real plan limit**, Guardian:
 
 1. **Reads your real quota** (the same you see in Settings → Usage), not an estimate. Through your account's usage endpoint it gets all three windows: **Session (5h)**, **Weekly (all models)** and **per-model limits** (e.g. Fable). The block is driven by whichever account-wide window is closest to its cap (session or weekly); per-model limits are **advisory only** (if one model is spent, you keep working with another).
-2. **Stops new work** with a real tool block (`PreToolUse` hook): the agent cannot keep burning quota without saving first.
+2. **Stops new work** with a real tool block (`PreToolUse` hook): the agent cannot keep burning quota without saving first. It applies to the terminal sessions that are over the threshold (the one that tripped it and any other that crosses it later); other sessions — e.g. Desktop or SDK routines — are not stopped. If you never save the checkpoint, the block lifts on its own once your real quota is back under the threshold, or earlier with `/guardian-continue`.
 3. **Forces a structured checkpoint** (`/continuity-checkpoint`): what was being built, what worked (with evidence), what did NOT work and why, the state of every file touched, decisions made, and the exact next step. It's written **dense** (caveman style: no filler, fragments; identifiers/paths/errors kept intact) so reopening spends the fewest possible tokens re-reading it.
 4. **Notifies you when the quota resets** (background watcher with OS notifications and adaptive polling — 15→3→1 min as your account fills up).
 5. **Resumes on its own**: the next time you open Claude Code in that project, a `SessionStart` hook injects the full checkpoint as context. The agent announces the next step and continues — zero re-explanation.
@@ -66,7 +66,7 @@ Install: `chrome://extensions` → Developer mode → **Load unpacked** → the 
 - **Works on any plan and any OS**: auto-detects only the installing user's quota (Pro/Max/Team) by reading Claude Code's OAuth token — a file on Windows/Linux, the **Keychain on macOS**.
 - **Visual monitor**: browser extension with badge + popup (above).
 - **One-command install, clean uninstall**: merges its hooks into `settings.json` without touching yours; the uninstaller only removes its own.
-- **198 tests** on Node 18 and 20 (`npm test`, CI included).
+- **234 tests** on Node 18 and 20 (`npm test`, CI included).
 - **Extensible to other AI providers**: adapter architecture; ships with notify-only monitoring of **OpenAI Codex CLI** today.
 
 ## Who is it for?

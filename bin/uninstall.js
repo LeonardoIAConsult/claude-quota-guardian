@@ -7,7 +7,7 @@ const paths = require('../lib/paths');
 const { atomicWriteFileSync } = require('../lib/atomic-write');
 const { removeHooks } = require('../lib/hooks-merge');
 const scheduledTask = require('../lib/scheduled-task');
-const { buildHookAdditions, statusLineCommand } = require('./install');
+const { buildHookAdditions, statusLineCommand, COMMAND_FILES } = require('./install');
 
 function readJsonOrEmpty(filePath) {
   try {
@@ -47,11 +47,14 @@ function uninstallStatusLine({ settingsFilePath, repoRoot }) {
 }
 
 function uninstallCommand({ commandsDirPath }) {
-  const target = path.join(commandsDirPath, 'continuity-checkpoint.md');
-  if (!fs.existsSync(target)) return null;
-
-  fs.rmSync(target);
-  return target;
+  let removed = null;
+  for (const name of COMMAND_FILES) {
+    const target = path.join(commandsDirPath, name);
+    if (!fs.existsSync(target)) continue;
+    fs.rmSync(target);
+    removed = removed || target;
+  }
+  return removed;
 }
 
 function expandHome(filePath) {

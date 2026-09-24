@@ -195,3 +195,13 @@ test('run orchestrates config, hooks, command and schedule', () => {
   fs.rmSync(home, { recursive: true, force: true });
   delete process.env.CQG_HOME;
 });
+
+test('installCommand also installs /guardian-continue, which the block message offers', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-install-'));
+  const commandsDirPath = path.join(dir, 'commands');
+
+  install.installCommand({ repoRoot: REPO_ROOT, commandsDirPath });
+  assert.ok(fs.existsSync(path.join(commandsDirPath, 'guardian-continue.md')));
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});

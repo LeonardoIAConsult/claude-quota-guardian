@@ -79,3 +79,143 @@ test('performCheck does not touch ccusage at all when plan is "none"', (t) => {
   fs.rmSync(cwd, { recursive: true, force: true });
   delete process.env.CQG_HOME;
 });
+
+function setupRelease(t, { ccusage, pending }) {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-threshold-'));
+  process.env.CQG_HOME = home;
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-project-'));
+  t.after(() => {
+    fs.rmSync(home, { recursive: true, force: true });
+    fs.rmSync(cwd, { recursive: true, force: true });
+    delete process.env.CQG_HOME;
+  });
+  t.mock.method(cp, 'execFileSync', ccusage);
+  const file = paths.pendingPath(cwd);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ consumed: false, checkpointFile: null, sessionId: 'old', ...pending }));
+  const config = { plan: 'pro', planTokenLimit: null, planCheckIntervalToolCalls: 1, thresholds: { context: 0.995, plan: 0.95 } };
+  return { cwd, config, readPending: () => JSON.parse(fs.readFileSync(file, 'utf8')) };
+}
+
+const ccusageAt = (pct) => () => JSON.stringify({ blocks: [{ endTime: 'reset', tokenLimitStatus: { percentUsed: pct } }] });
+
+test('performCheck releases an un-checkpointed quota pending once real quota is back under threshold', (t) => {
+  const { cwd, config, readPending } = setupRelease(t, { ccusage: ccusageAt(42), pending: { triggeredBy: 'plan' } });
+
+  assert.strictEqual(performCheck(baseInput(cwd), { config }), null);
+  const p = readPending();
+  assert.strictEqual(p.consumed, true);
+  assert.strictEqual(p.consumedReason, 'below-threshold');
+});
+
+test('performCheck never releases a quota pending when there is no quota reading', (t) => {
+  const { cwd, config, readPending } = setupRelease(t, {
+    ccusage: () => { throw new Error('offline'); },
+    pending: { triggeredBy: 'plan' },
+  });
+
+  performCheck(baseInput(cwd), { config });
+  // context (50%) is measured and low, but it is not the signal that tripped the block
+  assert.strictEqual(readPending().consumed, false);
+});
+
+test('performCheck leaves a checkpointed pending for SessionStart to resume', (t) => {
+  const { cwd, config, readPending } = setupRelease(t, {
+    ccusage: ccusageAt(42),
+    pending: { triggeredBy: 'plan', checkpointFile: '/x/checkpoint.md' },
+  });
+
+  performCheck(baseInput(cwd), { config });
+  assert.strictEqual(readPending().consumed, false);
+});
+
+test('performCheck keeps the pending while quota is still over threshold', (t) => {
+  const { cwd, config, readPending } = setupRelease(t, { ccusage: ccusageAt(97), pending: { triggeredBy: 'plan' } });
+
+  assert.ok(performCheck(baseInput(cwd), { config }));
+  assert.strictEqual(readPending().consumed, false);
+});
+
+function contextReleaseCase(t, ownerSession) {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-threshold-'));
+  process.env.CQG_HOME = home;
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-project-'));
+  t.after(() => {
+    fs.rmSync(home, { recursive: true, force: true });
+    fs.rmSync(cwd, { recursive: true, force: true });
+    delete process.env.CQG_HOME;
+  });
+  const file = paths.pendingPath(cwd);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ consumed: false, checkpointFile: null, triggeredBy: 'context', sessionId: ownerSession }));
+  // plan 'none' + no usageApi: context (50% in the fixture) is the only signal
+  const config = { plan: 'none', blockOnContext: true, planCheckIntervalToolCalls: 1, thresholds: { context: 0.995, plan: 0.95 } };
+  performCheck(baseInput(cwd), { config }); // baseInput runs as session 's1'
+  return JSON.parse(fs.readFileSync(file, 'utf8'));
+}
+
+test('performCheck lets only the owning session release a context pending', (t) => {
+  assert.strictEqual(contextReleaseCase(t, 's1').consumed, true);
+});
+
+test('performCheck does not let another session\'s low context release a context pending', (t) => {
+  assert.strictEqual(contextReleaseCase(t, 'someone-else').consumed, false);
+});
+
+test('performCheck keeps a context pending while that session\'s context is still over threshold', (t) => {
+  const { cwd, config, readPending } = setupRelease(t, { ccusage: ccusageAt(42), pending: { triggeredBy: 'context', sessionId: 's1' } });
+  config.blockOnContext = true;
+  // a plan reading exists (so context is demoted and anyAtThreshold is false),
+  // but this session's own context is at 99.6% -- no release.
+  performCheck({ ...baseInput(cwd), transcript_path: path.join(FIXTURES, 'transcript-99-6pct.jsonl') }, { config });
+  assert.strictEqual(readPending().consumed, false);
+});
+
+test('performCheck records another over-threshold terminal session as an offender', (t) => {
+  const { cwd, config, readPending } = setupRelease(t, { ccusage: ccusageAt(97), pending: { triggeredBy: 'plan', sessionId: 'closed-owner' } });
+
+  performCheck(baseInput(cwd), { config }); // runs as 's1'
+  const p = readPending();
+  assert.strictEqual(p.sessionId, 'closed-owner');
+  assert.deepStrictEqual(p.offenders, ['s1']);
+  assert.strictEqual(p.consumed, false);
+});
+
+test('performCheck does not add offenders while under threshold', (t) => {
+  const { cwd, config, readPending } = setupRelease(t, { ccusage: ccusageAt(97), pending: { triggeredBy: 'plan', sessionId: 's1' } });
+
+  performCheck(baseInput(cwd), { config }); // the owner itself: nothing to add
+  assert.strictEqual(readPending().offenders, undefined);
+});
+
+function contextPendingCase(t, pending, configExtra = {}) {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-threshold-'));
+  process.env.CQG_HOME = home;
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-project-'));
+  t.after(() => {
+    fs.rmSync(home, { recursive: true, force: true });
+    fs.rmSync(cwd, { recursive: true, force: true });
+    delete process.env.CQG_HOME;
+  });
+  const file = paths.pendingPath(cwd);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ consumed: false, checkpointFile: null, sessionId: 's1', ...pending }));
+  const config = { plan: 'none', blockOnContext: true, planCheckIntervalToolCalls: 1, thresholds: { context: 0.995, plan: 0.95 }, ...configExtra };
+  performCheck(baseInput(cwd), { config }); // fixture context: 50%
+  return JSON.parse(fs.readFileSync(file, 'utf8'));
+}
+
+test('performCheck keeps a predictive context pending until context actually drops', (t) => {
+  const p = contextPendingCase(t, { triggeredBy: 'context-predicted', pctAtTrigger: { context: 40, plan: null } });
+  assert.strictEqual(p.consumed, false);
+});
+
+test('performCheck releases a predictive context pending once context is below its trigger level', (t) => {
+  const p = contextPendingCase(t, { triggeredBy: 'context-predicted', pctAtTrigger: { context: 60, plan: null } });
+  assert.strictEqual(p.consumed, true);
+});
+
+test('performCheck does not release a context pending when context blocking is off', (t) => {
+  const p = contextPendingCase(t, { triggeredBy: 'context' }, { blockOnContext: false });
+  assert.strictEqual(p.consumed, false);
+});

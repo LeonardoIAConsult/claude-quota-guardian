@@ -82,13 +82,16 @@ function installStatusLine({ settingsFilePath, repoRoot }) {
   return { settings: merged, claimed: true };
 }
 
-function installCommand({ repoRoot, commandsDirPath }) {
-  const src = path.join(repoRoot, 'commands', 'continuity-checkpoint.md');
-  const dest = path.join(commandsDirPath, 'continuity-checkpoint.md');
+// /continuity-checkpoint is the main flow; /guardian-continue is the escape
+// hatch the block message offers, so it must be installed alongside it.
+const COMMAND_FILES = ['continuity-checkpoint.md', 'guardian-continue.md'];
 
+function installCommand({ repoRoot, commandsDirPath }) {
   fs.mkdirSync(commandsDirPath, { recursive: true });
-  fs.copyFileSync(src, dest);
-  return dest;
+  for (const name of COMMAND_FILES) {
+    fs.copyFileSync(path.join(repoRoot, 'commands', name), path.join(commandsDirPath, name));
+  }
+  return path.join(commandsDirPath, COMMAND_FILES[0]);
 }
 
 function expandHome(filePath) {
@@ -154,6 +157,7 @@ module.exports = {
   statusLineCommand,
   installStatusLine,
   installCommand,
+  COMMAND_FILES,
   installSchedule,
   expandHome,
   run,

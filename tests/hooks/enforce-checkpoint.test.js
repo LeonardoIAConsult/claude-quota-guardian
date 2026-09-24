@@ -84,3 +84,69 @@ test('enforce-checkpoint exits 0 with bad stdin', () => {
   assert.strictEqual(out.trim(), '');
   fs.rmSync(home, { recursive: true, force: true });
 });
+
+test('enforce-checkpoint blocks the session that tripped the threshold', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-home-'));
+  writePending(home, 'C:\\fake\\project', { sessionId: 'owner' });
+
+  const out = runHook({ cwd: 'C:\\fake\\project', tool_name: 'Edit', session_id: 'owner' }, { CQG_HOME: home });
+  assert.strictEqual(JSON.parse(out).decision, 'block');
+
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('enforce-checkpoint does not block a different session in the same project', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-home-'));
+  writePending(home, 'C:\\fake\\project', { sessionId: 'owner' });
+
+  const out = runHook({ cwd: 'C:\\fake\\project', tool_name: 'Edit', session_id: 'routine' }, { CQG_HOME: home });
+  assert.strictEqual(out.trim(), '');
+
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('enforce-checkpoint keeps the project-wide block when the pending has no sessionId', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-home-'));
+  writePending(home, 'C:\\fake\\project', { sessionId: null });
+
+  const out = runHook({ cwd: 'C:\\fake\\project', tool_name: 'Edit', session_id: 'any' }, { CQG_HOME: home });
+  assert.strictEqual(JSON.parse(out).decision, 'block');
+
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('enforce-checkpoint never lifts the block by age alone (no clock-based standdown)', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-home-'));
+  writePending(home, 'C:\\fake\\project', {
+    sessionId: 'owner',
+    triggeredAt: new Date(Date.now() - 6 * 3600 * 1000).toISOString(),
+  });
+
+  const out = runHook({ cwd: 'C:\\fake\\project', tool_name: 'Edit', session_id: 'owner' }, { CQG_HOME: home });
+  assert.strictEqual(JSON.parse(out).decision, 'block');
+
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('enforce-checkpoint honors /guardian-continue on an already-pending block', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-home-'));
+  const cwd = 'C:\\fake\\project';
+  writePending(home, cwd, { sessionId: 'owner' });
+  const overrideFile = path.join(path.dirname(pendingFileFor(home, cwd)), 'override.json');
+  fs.writeFileSync(overrideFile, JSON.stringify({ until: new Date(Date.now() + 600_000).toISOString() }));
+
+  const out = runHook({ cwd, tool_name: 'Edit', session_id: 'owner' }, { CQG_HOME: home });
+  assert.strictEqual(out.trim(), '');
+
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('enforce-checkpoint also blocks a session recorded as an offender', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-home-'));
+  writePending(home, 'C:\fake\project', { sessionId: 'owner', offenders: ['second'] });
+
+  const out = runHook({ cwd: 'C:\fake\project', tool_name: 'Edit', session_id: 'second' }, { CQG_HOME: home });
+  assert.strictEqual(JSON.parse(out).decision, 'block');
+
+  fs.rmSync(home, { recursive: true, force: true });
+});

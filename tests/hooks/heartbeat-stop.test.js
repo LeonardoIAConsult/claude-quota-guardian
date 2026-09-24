@@ -97,7 +97,7 @@ test('heartbeat-stop creates a pending checkpoint from a cached rate_limit signa
 
   const statePath = stateFileFor(home, 'C:\\fake\\project');
   fs.mkdirSync(path.dirname(statePath), { recursive: true });
-  fs.writeFileSync(statePath, JSON.stringify({ rateLimitPct: 99.8, rateLimitResetAt: '2026-06-20T00:00:00.000Z' }));
+  fs.writeFileSync(statePath, JSON.stringify({ rateLimitPct: 99.8, rateLimitResetAt: '2099-06-20T00:00:00.000Z' }));
 
   const out = runHook(
     { transcript_path: path.join(FIXTURES, 'transcript-50pct.jsonl'), cwd: 'C:\\fake\\project', session_id: 's1' },

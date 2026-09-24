@@ -131,7 +131,7 @@ test('performCheck warns (no block) on a premium model in the quota band and rec
   // Seed a cached account-quota signal inside the band (90% < hard 99.5%).
   const statePath = paths.statePath(cwd);
   fs.mkdirSync(path.dirname(statePath), { recursive: true });
-  fs.writeFileSync(statePath, JSON.stringify({ rateLimitPct: 90, rateLimitResetAt: '2026-08-04T00:00:00.000Z' }));
+  fs.writeFileSync(statePath, JSON.stringify({ rateLimitPct: 90, rateLimitResetAt: '2099-08-04T00:00:00.000Z' }));
 
   const config = {
     plan: 'none',

@@ -185,7 +185,7 @@ test('check-usage hard-blocks on CLI from a cached rate_limit signal alone, even
   // directly to simulate that having already happened before this hook runs.
   const statePath = stateFileFor(home, 'C:\\fake\\project');
   fs.mkdirSync(path.dirname(statePath), { recursive: true });
-  fs.writeFileSync(statePath, JSON.stringify({ rateLimitPct: 99.8, rateLimitResetAt: '2026-06-20T00:00:00.000Z' }));
+  fs.writeFileSync(statePath, JSON.stringify({ rateLimitPct: 99.8, rateLimitResetAt: '2099-06-20T00:00:00.000Z' }));
 
   const out = runHook(
     { transcript_path: path.join(FIXTURES, 'transcript-50pct.jsonl'), cwd: 'C:\\fake\\project', session_id: 's1' },
@@ -203,7 +203,7 @@ test('check-usage hard-blocks on CLI from a cached rate_limit signal alone, even
   // instead of clobbering them -- they're only ever refreshed by statusline.js.
   const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
   assert.strictEqual(state.rateLimitPct, 99.8);
-  assert.strictEqual(state.rateLimitResetAt, '2026-06-20T00:00:00.000Z');
+  assert.strictEqual(state.rateLimitResetAt, '2099-06-20T00:00:00.000Z');
 
   fs.rmSync(home, { recursive: true, force: true });
 });
@@ -213,7 +213,7 @@ test('check-usage plan-warns on claude-desktop from a cached rate_limit signal a
 
   const statePath = stateFileFor(home, 'C:\\fake\\project');
   fs.mkdirSync(path.dirname(statePath), { recursive: true });
-  fs.writeFileSync(statePath, JSON.stringify({ rateLimitPct: 99.9, rateLimitResetAt: '2026-06-20T00:00:00.000Z' }));
+  fs.writeFileSync(statePath, JSON.stringify({ rateLimitPct: 99.9, rateLimitResetAt: '2099-06-20T00:00:00.000Z' }));
 
   const out = runHook(
     { transcript_path: path.join(FIXTURES, 'transcript-50pct-desktop.jsonl'), cwd: 'C:\\fake\\project', session_id: 's1' },
