@@ -80,11 +80,13 @@ function main() {
     pending.consumedAt = new Date().toISOString();
     pending.consumedReason = 'checkpoint-not-auto-loaded';
     atomicWriteFileSync(pendingFile, JSON.stringify(pending, null, 2));
-    log(`checkpoint not auto-loaded (outside continuity dir, linked or unreadable): ${JSON.stringify(pending.checkpointFile)}`);
+    // Quoted and capped: the path comes from a plain local file.
+    const shown = JSON.stringify(String(pending.checkpointFile).slice(0, 300));
+    log(`checkpoint not auto-loaded (outside continuity dir, linked or unreadable): ${shown}`);
     process.stdout.write(JSON.stringify({
       hookSpecificOutput: {
         hookEventName: 'SessionStart',
-        additionalContext: `Claude Quota Guardian: la sesión anterior guardó un checkpoint en ${JSON.stringify(pending.checkpointFile)}, pero no se cargó automáticamente porque está fuera de la carpeta de continuidad de este proyecto (o no se pudo leer). No lo leas por tu cuenta: mencionale esta ruta al usuario y leelo solo si él lo confirma.`,
+        additionalContext: `Claude Quota Guardian: la sesión anterior registró un checkpoint en ${shown}, pero no se cargó automáticamente (está fuera de la carpeta de continuidad de este proyecto, es un enlace, o ya no existe). No lo leas por tu cuenta: mencionale esta ruta al usuario y leelo solo si él lo confirma.`,
       },
     }));
     return;

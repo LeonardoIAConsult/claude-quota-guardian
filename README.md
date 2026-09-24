@@ -18,7 +18,7 @@ Cuando una **sesión de Claude Code en terminal** se acerca al límite **real de
 2. **Frena el trabajo nuevo** con un bloqueo real de herramientas (hook `PreToolUse`): el agente no puede seguir quemando cuota sin guardar primero. Aplica a las sesiones de terminal que están sobre el umbral (la que lo disparó y cualquier otra que lo cruce después); otras sesiones — p. ej. rutinas en Desktop o vía SDK — no se frenan. Si no guardás el checkpoint, el bloqueo se levanta solo cuando tu cuota real vuelve bajo el umbral, o antes con `/guardian-continue`.
 3. **Fuerza un checkpoint estructurado** (`/continuity-checkpoint`): qué se estaba construyendo, qué funcionó (con evidencia), qué NO funcionó y por qué, estado de cada archivo, decisiones tomadas, y el próximo paso exacto. Se escribe **denso** (estilo caveman: sin relleno, fragmentos; identificadores/rutas/errores intactos) para gastar los mínimos tokens al reabrir.
 4. **Avisa cuando la cuota se reinicia** (watcher en segundo plano con notificaciones del sistema, cadencia adaptativa 15→3→1 min según qué tan llena está la cuenta).
-5. **Retoma solo**: al reabrir Claude Code en ese proyecto, un hook `SessionStart` inyecta el checkpoint completo como contexto. El agente anuncia el próximo paso y sigue — cero re-explicación.
+5. **Retoma solo**: al reabrir Claude Code en ese proyecto, un hook `SessionStart` inyecta el checkpoint completo como contexto (solo el que `/continuity-checkpoint` guarda en la carpeta de continuidad del proyecto; un archivo en otra ruta, p. ej. un CHECKPOINT.md dentro del repo, no se carga solo: se te muestra la ruta para que decidas). El agente anuncia el próximo paso y sigue — cero re-explicación.
 
 ```
 [Trabajo normal] -> PostToolUse: check-usage.js

@@ -18,7 +18,7 @@ When a **Claude Code terminal session** approaches your **real plan limit**, Gua
 2. **Stops new work** with a real tool block (`PreToolUse` hook): the agent cannot keep burning quota without saving first. It applies to the terminal sessions that are over the threshold (the one that tripped it and any other that crosses it later); other sessions — e.g. Desktop or SDK routines — are not stopped. If you never save the checkpoint, the block lifts on its own once your real quota is back under the threshold, or earlier with `/guardian-continue`.
 3. **Forces a structured checkpoint** (`/continuity-checkpoint`): what was being built, what worked (with evidence), what did NOT work and why, the state of every file touched, decisions made, and the exact next step. It's written **dense** (caveman style: no filler, fragments; identifiers/paths/errors kept intact) so reopening spends the fewest possible tokens re-reading it.
 4. **Notifies you when the quota resets** (background watcher with OS notifications and adaptive polling — 15→3→1 min as your account fills up).
-5. **Resumes on its own**: the next time you open Claude Code in that project, a `SessionStart` hook injects the full checkpoint as context. The agent announces the next step and continues — zero re-explanation.
+5. **Resumes on its own**: the next time you open Claude Code in that project, a `SessionStart` hook injects the full checkpoint as context (only the one `/continuity-checkpoint` saves in the project's continuity folder; a file anywhere else, e.g. a CHECKPOINT.md inside the repo, is not auto-loaded: you are shown its path to decide). The agent announces the next step and continues — zero re-explanation.
 
 ```
 [Normal work] -> PostToolUse: check-usage.js

@@ -66,3 +66,17 @@ test('atomicWriteFileSync never writes into a file hard-linked at the tmp name',
   atomicWriteFileSync(path.join(dir, 'file.json'), '{"c":3}');
   assert.strictEqual(fs.readFileSync(victim, 'utf8'), 'original');
 });
+
+
+test('atomicWriteFileSync writes through a linked directory (e.g. ~/.claude moved via a junction)', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const real = path.join(dir, 'real');
+  fs.mkdirSync(real);
+  const link = path.join(dir, 'link');
+  // junctions need no privileges on Windows; directory symlinks need none on POSIX
+  fs.symlinkSync(real, link, process.platform === 'win32' ? 'junction' : 'dir');
+
+  atomicWriteFileSync(path.join(link, 'state.json'), '{"d":4}');
+  assert.strictEqual(fs.readFileSync(path.join(real, 'state.json'), 'utf8'), '{"d":4}');
+});

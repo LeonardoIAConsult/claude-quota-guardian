@@ -348,3 +348,15 @@ test('performCheck does not re-notify when it cannot store the new lastNotifiedA
   performCheck(baseInput(cwd), { config });
   assert.strictEqual(sent.filter(([, msg]) => /falta \/continuity-checkpoint/.test(msg)).length, 0);
 });
+
+
+test('performCheck keeps a quota offender on a context pending while quota is unreadable', (t) => {
+  const { cwd, config, readPending } = setupRelease(t, {
+    ccusage: () => { throw new Error('offline'); },
+    pending: { triggeredBy: 'context', sessionId: 'old', offenders: ['s1'] },
+  });
+  config.blockOnContext = true; // context (50%) is low, but the quota signal is configured and unread
+
+  performCheck(baseInput(cwd), { config });
+  assert.deepStrictEqual(readPending().offenders, ['s1']);
+});

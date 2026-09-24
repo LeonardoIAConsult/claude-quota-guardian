@@ -209,3 +209,26 @@ test('resume-context consumes a pending whose checkpoint file no longer exists',
   runHook({ cwd, source: 'startup' }, { CQG_HOME: home });
   assert.strictEqual(JSON.parse(fs.readFileSync(pendingFile, 'utf8')).consumed, true);
 });
+
+
+test('resume-context refuses a sibling dir that merely shares the continuity dir prefix', (t) => {
+  const { home, cwd } = sandbox(t);
+  const pendingFile = pendingFileFor(home, cwd);
+  fs.mkdirSync(path.dirname(pendingFile), { recursive: true });
+  const sibling = `${path.dirname(pendingFile)}-evil`;
+  fs.mkdirSync(sibling);
+  fs.writeFileSync(path.join(sibling, 'checkpoint.md'), 'SIBLING TEXT');
+  pendingWith(home, cwd, path.join(sibling, 'checkpoint.md'));
+
+  assertNotAutoLoaded(runHook({ cwd, source: 'startup' }, { CQG_HOME: home }), pendingFile, 'SIBLING TEXT');
+});
+
+test('resume-context shows the refused checkpoint path so the user can decide', (t) => {
+  const { home, cwd } = sandbox(t);
+  const inRepo = path.join(cwd, 'CHECKPOINT.md');
+  fs.writeFileSync(inRepo, 'x');
+  pendingWith(home, cwd, inRepo);
+
+  const ctx = JSON.parse(runHook({ cwd, source: 'startup' }, { CQG_HOME: home })).hookSpecificOutput.additionalContext;
+  assert.ok(ctx.includes(JSON.stringify(inRepo)), 'the quoted path must be shown');
+});
