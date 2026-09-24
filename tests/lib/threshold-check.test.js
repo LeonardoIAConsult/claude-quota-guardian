@@ -280,3 +280,71 @@ test('performCheck never releases a context pending when context is unmeasured',
   performCheck({ ...baseInput(cwd), transcript_path: path.join(FIXTURES, 'transcript-cli-no-usage.jsonl') }, { config });
   assert.strictEqual(JSON.parse(fs.readFileSync(file, 'utf8')).consumed, false);
 });
+
+test('performCheck keeps an offender of a quota pending when only context is readable', (t) => {
+  const { cwd, config, readPending } = setupRelease(t, {
+    ccusage: () => { throw new Error('offline'); },
+    pending: { triggeredBy: 'plan', sessionId: 'old', offenders: ['s1'] },
+  });
+  config.blockOnContext = true; // context (50%) is measured, but it is not the signal that tripped it
+
+  performCheck(baseInput(cwd), { config });
+  assert.deepStrictEqual(readPending().offenders, ['s1']);
+});
+
+test('performCheck never clobbers a checkpointFile stored during the fetch when recording an offender', (t) => {
+  let pendingFile;
+  const { cwd, config, readPending } = setupRelease(t, {
+    ccusage: () => {
+      const p = JSON.parse(fs.readFileSync(pendingFile, 'utf8'));
+      fs.writeFileSync(pendingFile, JSON.stringify({ ...p, checkpointFile: '/saved/checkpoint.md' }));
+      return JSON.stringify({ blocks: [{ endTime: 'reset', tokenLimitStatus: { percentUsed: 97 } }] });
+    },
+    pending: { triggeredBy: 'plan', sessionId: 'old', lastNotifiedAt: '2000-01-01T00:00:00Z' },
+  });
+  pendingFile = paths.pendingPath(cwd);
+
+  performCheck(baseInput(cwd), { config });
+  const p = readPending();
+  assert.strictEqual(p.checkpointFile, '/saved/checkpoint.md');
+  assert.deepStrictEqual(p.offenders, ['s1']);
+  // a checkpoint landed: no "falta /continuity-checkpoint" re-notify stamp
+  assert.strictEqual(p.lastNotifiedAt, '2000-01-01T00:00:00Z');
+});
+
+test('performCheck does not release a pending that was replaced during the fetch', (t) => {
+  let pendingFile;
+  const { cwd, config, readPending } = setupRelease(t, {
+    ccusage: () => {
+      fs.writeFileSync(pendingFile, JSON.stringify({
+        consumed: false, checkpointFile: null, triggeredBy: 'plan', sessionId: 'newer', triggeredAt: '2099-01-01T00:00:00Z',
+      }));
+      return JSON.stringify({ blocks: [{ endTime: 'reset', tokenLimitStatus: { percentUsed: 42 } }] });
+    },
+    pending: { triggeredBy: 'plan', sessionId: 'old', triggeredAt: '2026-01-01T00:00:00Z' },
+  });
+  pendingFile = paths.pendingPath(cwd);
+
+  performCheck(baseInput(cwd), { config });
+  const p = readPending();
+  assert.strictEqual(p.sessionId, 'newer');
+  assert.strictEqual(p.consumed, false);
+});
+
+test('performCheck does not re-notify when it cannot store the new lastNotifiedAt', (t) => {
+  const notify = require('../../lib/notify');
+  const { cwd, config } = setupRelease(t, {
+    ccusage: ccusageAt(97),
+    pending: { triggeredBy: 'plan', sessionId: 's1', lastNotifiedAt: '2000-01-01T00:00:00Z' },
+  });
+  // A directory at this process's tmp name makes every atomic write of
+  // pending.json fail (exclusive create hits it, and it can't be rm'd as a file).
+  const file = paths.pendingPath(cwd);
+  fs.mkdirSync(path.join(path.dirname(file), `.pending.json.${process.pid}.tmp`));
+  const sent = [];
+  t.mock.method(notify, 'send', (...args) => { sent.push(args); });
+
+  performCheck(baseInput(cwd), { config });
+  performCheck(baseInput(cwd), { config });
+  assert.strictEqual(sent.filter(([, msg]) => /falta \/continuity-checkpoint/.test(msg)).length, 0);
+});

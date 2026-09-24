@@ -17,16 +17,32 @@ function readStdin() {
 }
 
 // Whatever checkpointFile names is injected into the new session as trusted
-// context, and pending.json is a plain local file. Only read a markdown
-// checkpoint from this project's continuity dir (where /continuity-checkpoint
-// writes it) or from the project itself (agents sometimes save it there) --
-// never an arbitrary file such as a credential.
+// context ("continue directly"), and pending.json is a plain local file. Only
+// auto-load a markdown checkpoint that really lives in this project's
+// continuity dir, where /continuity-checkpoint writes it. Links are resolved
+// on both sides and hard-linked files refused: a junction, symlink or hard
+// link could otherwise make a path that looks inside point at any file (a
+// credential). A repo's own files are never auto-loaded either.
 function allowedCheckpoint(file, cwd) {
   if (typeof file !== 'string' || !/\.md$/i.test(file)) return false;
-  const norm = (p) => (process.platform === 'win32' ? p.toLowerCase() : p);
-  const target = norm(path.resolve(file));
-  return [paths.projectDir(cwd), cwd]
-    .some((dir) => target.startsWith(norm(path.resolve(dir)) + path.sep));
+  try {
+    const real = fs.realpathSync.native(file);
+    const stat = fs.statSync(real);
+    if (!stat.isFile() || stat.nlink !== 1) return false;
+    const norm = (p) => (process.platform === 'win32' ? p.toLowerCase() : p);
+    const dir = fs.realpathSync.native(paths.projectDir(cwd));
+    return norm(real).startsWith(norm(dir.endsWith(path.sep) ? dir : dir + path.sep));
+  } catch {
+    return false;
+  }
+}
+
+function log(line) {
+  try {
+    fs.appendFileSync(paths.logPath(), `[resume-context] ${new Date().toISOString()} ${line}\n`);
+  } catch {
+    // logging is best-effort
+  }
 }
 
 function main() {
@@ -46,14 +62,31 @@ function main() {
   if (!pending || pending.consumed !== false || !pending.checkpointFile) {
     return;
   }
-  if (!allowedCheckpoint(pending.checkpointFile, input.cwd)) {
-    return;
+  let checkpoint = null;
+  if (allowedCheckpoint(pending.checkpointFile, input.cwd)) {
+    try {
+      checkpoint = fs.readFileSync(pending.checkpointFile, 'utf8');
+    } catch {
+      checkpoint = null;
+    }
   }
 
-  let checkpoint;
-  try {
-    checkpoint = fs.readFileSync(pending.checkpointFile, 'utf8');
-  } catch {
+  // Refused or unreadable: still consume the pending -- nothing else ever
+  // consumes a checkpointed one, so leaving it would keep this project
+  // hard-blocked for good. Point at the file instead of injecting it; reading
+  // it then goes through the normal tools and their permission checks.
+  if (checkpoint === null) {
+    pending.consumed = true;
+    pending.consumedAt = new Date().toISOString();
+    pending.consumedReason = 'checkpoint-not-auto-loaded';
+    atomicWriteFileSync(pendingFile, JSON.stringify(pending, null, 2));
+    log(`checkpoint not auto-loaded (outside continuity dir, linked or unreadable): ${JSON.stringify(pending.checkpointFile)}`);
+    process.stdout.write(JSON.stringify({
+      hookSpecificOutput: {
+        hookEventName: 'SessionStart',
+        additionalContext: `Claude Quota Guardian: la sesión anterior guardó un checkpoint en ${JSON.stringify(pending.checkpointFile)}, pero no se cargó automáticamente porque está fuera de la carpeta de continuidad de este proyecto (o no se pudo leer). No lo leas por tu cuenta: mencionale esta ruta al usuario y leelo solo si él lo confirma.`,
+      },
+    }));
     return;
   }
 
@@ -81,9 +114,5 @@ function main() {
 try {
   main();
 } catch (err) {
-  try {
-    fs.appendFileSync(paths.logPath(), `[resume-context] ${new Date().toISOString()} ERROR ${err.stack}\n`);
-  } catch {
-    // logging is best-effort
-  }
+  log(`ERROR ${err.stack}`);
 }

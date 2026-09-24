@@ -99,3 +99,13 @@ test('schtasks is invoked by absolute System32 path, never by bare name', () => 
   assert.ok(require('node:path').win32.isAbsolute(exe));
   assert.match(exe, /\\System32\\schtasks\.exe$/i);
 });
+
+test('schtasksExe ignores a relative SystemRoot', (t) => {
+  const prev = process.env.SystemRoot;
+  process.env.SystemRoot = 'Windows';
+  t.after(() => {
+    if (prev === undefined) delete process.env.SystemRoot;
+    else process.env.SystemRoot = prev;
+  });
+  assert.strictEqual(scheduledTask.schtasksExe(), 'C:\\Windows\\System32\\schtasks.exe');
+});

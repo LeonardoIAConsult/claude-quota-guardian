@@ -118,47 +118,94 @@ function pendingWith(home, cwd, checkpointFile) {
   return pendingFile;
 }
 
-test('resume-context never injects a file outside the project and its continuity dir', () => {
+// A refused checkpoint is never injected, but the pending is still consumed
+// (otherwise the project would stay hard-blocked) and only its path is shown.
+function assertNotAutoLoaded(out, pendingFile, secretText) {
+  const ctx = JSON.parse(out).hookSpecificOutput.additionalContext;
+  assert.ok(!ctx.includes(secretText), 'content must not be injected');
+  assert.match(ctx, /no se cargó automáticamente/);
+  const pending = JSON.parse(fs.readFileSync(pendingFile, 'utf8'));
+  assert.strictEqual(pending.consumed, true);
+  assert.strictEqual(pending.consumedReason, 'checkpoint-not-auto-loaded');
+}
+
+function sandbox(t) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-home-'));
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-project-'));
+  t.after(() => {
+    fs.rmSync(home, { recursive: true, force: true });
+    fs.rmSync(cwd, { recursive: true, force: true });
+  });
+  return { home, cwd };
+}
+
+test('resume-context never injects a file outside its continuity dir, but consumes the pending', (t) => {
+  const { home, cwd } = sandbox(t);
   const secret = path.join(home, 'secret.md');
   fs.writeFileSync(secret, 'TOP SECRET');
   const pendingFile = pendingWith(home, cwd, secret);
 
-  const out = runHook({ cwd, source: 'startup' }, { CQG_HOME: home });
-  assert.strictEqual(out.trim(), '');
-  assert.strictEqual(JSON.parse(fs.readFileSync(pendingFile, 'utf8')).consumed, false);
-
-  fs.rmSync(home, { recursive: true, force: true });
-  fs.rmSync(cwd, { recursive: true, force: true });
+  assertNotAutoLoaded(runHook({ cwd, source: 'startup' }, { CQG_HOME: home }), pendingFile, 'TOP SECRET');
 });
 
-test('resume-context never injects a non-markdown file, even from its own dir', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-home-'));
-  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-project-'));
+test('resume-context never injects a non-markdown file, even from its own dir', (t) => {
+  const { home, cwd } = sandbox(t);
   const pendingFile = pendingFileFor(home, cwd);
-  const notMd = path.join(path.dirname(pendingFile), 'state.json');
   fs.mkdirSync(path.dirname(pendingFile), { recursive: true });
-  fs.writeFileSync(notMd, '{}');
+  const notMd = path.join(path.dirname(pendingFile), 'notes.txt');
+  fs.writeFileSync(notMd, 'TOP SECRET');
   pendingWith(home, cwd, notMd);
 
-  const out = runHook({ cwd, source: 'startup' }, { CQG_HOME: home });
-  assert.strictEqual(out.trim(), '');
-
-  fs.rmSync(home, { recursive: true, force: true });
-  fs.rmSync(cwd, { recursive: true, force: true });
+  assertNotAutoLoaded(runHook({ cwd, source: 'startup' }, { CQG_HOME: home }), pendingFile, 'TOP SECRET');
 });
 
-test('resume-context accepts a checkpoint the agent saved inside the project itself', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-home-'));
-  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-project-'));
-  const inProject = path.join(cwd, 'CHECKPOINT.md');
-  fs.writeFileSync(inProject, '# Checkpoint\n## Exact Next Step\nship it\n');
-  pendingWith(home, cwd, inProject);
+test('resume-context does not auto-load a CHECKPOINT.md from the repo itself', (t) => {
+  const { home, cwd } = sandbox(t);
+  const inRepo = path.join(cwd, 'CHECKPOINT.md');
+  fs.writeFileSync(inRepo, 'REPO CONTROLLED TEXT');
+  const pendingFile = pendingWith(home, cwd, inRepo);
 
-  const out = runHook({ cwd, source: 'startup' }, { CQG_HOME: home });
-  assert.match(JSON.parse(out).hookSpecificOutput.additionalContext, /ship it/);
+  assertNotAutoLoaded(runHook({ cwd, source: 'startup' }, { CQG_HOME: home }), pendingFile, 'REPO CONTROLLED TEXT');
+});
 
-  fs.rmSync(home, { recursive: true, force: true });
-  fs.rmSync(cwd, { recursive: true, force: true });
+test('resume-context refuses a hard link in its continuity dir pointing at another file', (t) => {
+  const { home, cwd } = sandbox(t);
+  const secret = path.join(home, 'id_rsa');
+  fs.writeFileSync(secret, 'PRIVATE KEY');
+  const pendingFile = pendingFileFor(home, cwd);
+  fs.mkdirSync(path.dirname(pendingFile), { recursive: true });
+  const link = path.join(path.dirname(pendingFile), 'checkpoint-x.md');
+  fs.linkSync(secret, link);
+  pendingWith(home, cwd, link);
+
+  assertNotAutoLoaded(runHook({ cwd, source: 'startup' }, { CQG_HOME: home }), pendingFile, 'PRIVATE KEY');
+});
+
+test('resume-context refuses a linked dir in its continuity dir pointing outside', (t) => {
+  const { home, cwd } = sandbox(t);
+  const outside = path.join(home, 'outside');
+  fs.mkdirSync(outside);
+  fs.writeFileSync(path.join(outside, 'loot.md'), 'OUTSIDE FILE');
+  const pendingFile = pendingFileFor(home, cwd);
+  fs.mkdirSync(path.dirname(pendingFile), { recursive: true });
+  const linkDir = path.join(path.dirname(pendingFile), 'linkdir');
+  try {
+    fs.symlinkSync(outside, linkDir, 'junction'); // junctions need no privileges on Windows
+  } catch {
+    t.skip('cannot create a directory link here');
+    return;
+  }
+  pendingWith(home, cwd, path.join(linkDir, 'loot.md'));
+
+  assertNotAutoLoaded(runHook({ cwd, source: 'startup' }, { CQG_HOME: home }), pendingFile, 'OUTSIDE FILE');
+});
+
+test('resume-context consumes a pending whose checkpoint file no longer exists', (t) => {
+  const { home, cwd } = sandbox(t);
+  const pendingFile = pendingFileFor(home, cwd);
+  const gone = path.join(path.dirname(pendingFile), 'checkpoint-gone.md');
+  pendingWith(home, cwd, gone);
+
+  runHook({ cwd, source: 'startup' }, { CQG_HOME: home });
+  assert.strictEqual(JSON.parse(fs.readFileSync(pendingFile, 'utf8')).consumed, true);
 });
