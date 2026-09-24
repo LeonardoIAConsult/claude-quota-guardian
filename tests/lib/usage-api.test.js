@@ -57,7 +57,12 @@ test('readAccessToken returns null for an expired token', (t) => {
 test('fetchUsage is unavailable without credentials and never spawns', (t) => {
   withHome(t, null);
   let calls = 0;
-  t.mock.method(cp, 'execFileSync', () => { calls += 1; return '{}'; });
+  // Only the network fetch child counts: on macOS the credential lookup itself
+  // spawns /usr/bin/security (Keychain), which is expected.
+  t.mock.method(cp, 'execFileSync', (file) => {
+    if (file === process.execPath) calls += 1;
+    return '{}';
+  });
 
   const result = usageApi.fetchUsage();
   assert.strictEqual(result.available, false);
