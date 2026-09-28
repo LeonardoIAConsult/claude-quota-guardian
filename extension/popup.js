@@ -35,6 +35,32 @@ function rowHtml(w, scoped) {
     </div>`;
 }
 
+function fmtUsd(n) {
+  return `$${Number(n).toFixed(2)}`;
+}
+
+function fmtExpiry(iso) {
+  if (!iso) return '';
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return '';
+  const days = Math.ceil((t - Date.now()) / 86400000);
+  return days > 0 ? `vence en ${days} d` : 'vencido';
+}
+
+function creditRowHtml(c) {
+  const cls = colorClass(c.pct);
+  const expiry = fmtExpiry(c.expiresAt);
+  return `
+    <div class="row">
+      <div class="row-top">
+        <span class="row-label">${escapeHtml(c.label)}</span>
+        <span class="row-pct">quedan ${fmtUsd(c.remaining)}</span>
+      </div>
+      <div class="bar"><span class="${cls}" style="width:${Math.max(2, Math.min(100, c.pct))}%"></span></div>
+      <div class="row-reset">${fmtUsd(c.used)} usados de ${fmtUsd(c.limit)}${expiry ? ` · ${expiry}` : ''}</div>
+    </div>`;
+}
+
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => (
     { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
@@ -54,6 +80,8 @@ function render(u) {
   const blockingEl = document.getElementById('blocking');
   const scopedSection = document.getElementById('scoped');
   const scopedRows = document.getElementById('scoped-rows');
+  const creditsSection = document.getElementById('credits');
+  const creditRows = document.getElementById('credit-rows');
 
   if (!u || !u.ok) {
     const reason = (u && u.reason) || 'unknown';
@@ -62,6 +90,7 @@ function render(u) {
     statusEl.className = 'status error';
     blockingEl.innerHTML = '';
     scopedSection.hidden = true;
+    creditsSection.hidden = true;
     return;
   }
 
@@ -73,6 +102,13 @@ function render(u) {
     scopedSection.hidden = false;
   } else {
     scopedSection.hidden = true;
+  }
+
+  if (u.credits && u.credits.length) {
+    creditRows.innerHTML = u.credits.map(creditRowHtml).join('');
+    creditsSection.hidden = false;
+  } else {
+    creditsSection.hidden = true;
   }
 
   const updated = document.getElementById('updated');

@@ -69,6 +69,41 @@
     return windows;
   }
 
+  // Dollar credits (e.g. the cloud-session promo credit) are top-level entries
+  // under internal codenames that can change, so they are recognized by SHAPE
+  // (positive limit_dollars + numeric used/remaining), never by name. Mirrors
+  // creditsFrom() in lib/usage-api.js. Informational only: never in the badge.
+  const CREDIT_LABELS = { iguana_necktie: 'Crédito nube' };
+
+  function num(x) {
+    return typeof x === 'number' && Number.isFinite(x) ? x : null;
+  }
+
+  function creditsFrom(raw) {
+    if (!raw || typeof raw !== 'object') return [];
+    const credits = [];
+    for (const [key, v] of Object.entries(raw)) {
+      if (!v || typeof v !== 'object' || Array.isArray(v)) continue;
+      const limit = num(v.limit_dollars);
+      if (limit === null || limit <= 0) continue;
+      let used = num(v.used_dollars);
+      let remaining = num(v.remaining_dollars);
+      if (used === null && remaining === null) continue;
+      if (used === null) used = limit - remaining;
+      if (remaining === null) remaining = limit - used;
+      credits.push({
+        key,
+        label: Object.hasOwn(CREDIT_LABELS, key) ? CREDIT_LABELS[key] : 'Crédito promocional',
+        limit,
+        used: Math.max(0, used),
+        remaining: Math.max(0, remaining),
+        pct: clampPct((used / limit) * 100),
+        expiresAt: typeof v.resets_at === 'string' ? v.resets_at : null,
+      });
+    }
+    return credits;
+  }
+
   async function fetchUsage() {
     let ids;
     try {
@@ -107,10 +142,10 @@
       // null (not 0) when there is no account-wide window, so the badge can tell
       // "no gating data" apart from a genuine 0%.
       const topPct = blocking.length ? blocking.reduce((a, b) => (b.pct > a.pct ? b : a)).pct : null;
-      return { ok: true, windows, blocking, scoped, topPct, orgId, fetchedAt: Date.now() };
+      return { ok: true, windows, blocking, scoped, credits: creditsFrom(raw), topPct, orgId, fetchedAt: Date.now() };
     }
     return { ok: false, reason: lastReason };
   }
 
-  root.GuardianUsage = { fetchUsage, getOrgId, getOrgIds, windowsFrom, clampPct };
+  root.GuardianUsage = { fetchUsage, getOrgId, getOrgIds, windowsFrom, creditsFrom, clampPct };
 })(typeof self !== 'undefined' ? self : globalThis);

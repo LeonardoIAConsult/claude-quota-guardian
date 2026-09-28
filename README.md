@@ -53,6 +53,7 @@ En `extension/` hay una extensión **Manifest V3** (Chrome/Edge/Brave) para **ve
 
 - **Insignia (badge)** en la barra: el % de la ventana más apretada (sesión o semanal), en verde/naranja/rojo según cercanía al tope. Se actualiza en segundo plano.
 - **Popup**: Sesión (5h) y Semanal como barras principales; los límites por modelo (Fable, etc.) como aviso; cuenta regresiva de reinicio de cada ventana.
+- **Créditos en dólares** (por ejemplo, el crédito promocional para sesiones en la nube): cuánto usaste, cuánto te queda y cuándo vence. Es solo informativo: no cuenta para la insignia ni para el bloqueo. Desde la terminal: `node scripts/credits.js`.
 - **Sin tokens ni secretos**: usa la misma llamada que la pantalla de Uso de la propia app de Claude, autenticada con las cookies de tu sesión de claude.ai. Único permiso de host: `claude.ai`. No envía datos a terceros.
 
 Instalar: `chrome://extensions` → Modo desarrollador → **Cargar descomprimida** → carpeta `extension/`. Detalle en [extension/README.md](extension/README.md).
@@ -72,7 +73,7 @@ Instalar: `chrome://extensions` → Modo desarrollador → **Cargar descomprimid
 - **Funciona para cualquier plan y cualquier OS**: detecta solo la cuota de quien lo instale (Pro/Max/Team) leyendo el token OAuth de Claude Code — archivo en Windows/Linux, **Keychain en macOS**.
 - **Monitor visual**: extensión de navegador con badge + popup (arriba).
 - **Instalación de 1 comando, desinstalación limpia**: mergea sus hooks en `settings.json` sin tocar los tuyos; el uninstaller solo quita lo suyo.
-- **258 tests** (`npm test`), con CI en Windows, macOS y Linux sobre Node 18 y 20.
+- **269 tests** (`npm test`), con CI en Windows, macOS y Linux sobre Node 18 y 20.
 - **Extensible a otros proveedores de IA**: arquitectura de adaptadores; hoy incluye monitoreo notify-only de **OpenAI Codex CLI**.
 
 ## ¿Para quién es?

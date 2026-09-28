@@ -8,6 +8,7 @@ Extensión de navegador (Chrome/Edge/Brave, Manifest V3) para **ver en vivo tu c
 - **Popup** al hacer clic:
   - **Sesión** (5h) y **Semanal** — las ventanas que gatean todo (barras principales).
   - **Por modelo** (Fable, etc.) — solo informativo (esos límites afectan a un modelo, no a todo).
+  - **Créditos en dólares** (por ejemplo, el crédito para sesiones en la nube): usado, restante y vencimiento. Se reconocen por la forma de la respuesta, no por su nombre interno, así que siguen apareciendo aunque Anthropic renombre el campo. No cuentan para la insignia.
   - Tiempo de reinicio de cada ventana y botón de actualizar.
 
 ## Privacidad / seguridad
