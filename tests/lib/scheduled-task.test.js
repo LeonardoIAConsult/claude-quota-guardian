@@ -109,3 +109,12 @@ test('schtasksExe ignores a relative SystemRoot', (t) => {
   });
   assert.strictEqual(scheduledTask.schtasksExe(), 'C:\\Windows\\System32\\schtasks.exe');
 });
+
+test('win32 task runs node through wscript + run-hidden.vbs so no console window flashes', () => {
+  const win = { ...OPTS, nodePath: 'C:\\nodejs\\node.exe', watcherPath: 'C:\\cqg\\watcher\\quota-watcher.js' };
+  for (const desc of [scheduledTask.describeInstall('win32', win), scheduledTask.describeReschedule('win32', win)]) {
+    const args = desc.commands[0];
+    const tr = args[args.indexOf('/tr') + 1];
+    assert.match(tr, /^"[^"]*\\System32\\wscript\.exe" "C:\\cqg\\watcher\\run-hidden\.vbs" "C:\\nodejs\\node\.exe" "C:\\cqg\\watcher\\quota-watcher\.js"$/i);
+  }
+});
