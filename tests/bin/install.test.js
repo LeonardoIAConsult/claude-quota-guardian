@@ -7,6 +7,7 @@ const install = require('../../bin/install');
 const { DEFAULTS } = require('../../lib/config');
 
 const REPO_ROOT = path.join(__dirname, '..', '..');
+const NO_PLUGINS = path.join(os.tmpdir(), 'cqg-no-installed-plugins.json');
 
 test('installConfig writes defaults when no config exists', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-install-'));
@@ -215,13 +216,13 @@ test('installBar adds bar/ to CLAUDE_CODE_PLUGIN_DIRS, keeps other folders and e
   const settingsFilePath = path.join(dir, 'settings.json');
   fs.writeFileSync(settingsFilePath, JSON.stringify({ env: { OTHER: '1', CLAUDE_CODE_PLUGIN_DIRS: '/my/mod' }, theme: 'dark' }));
 
-  const first = install.installBar({ settingsFilePath, repoRoot: '/repo', delimiter: ':' });
+  const first = install.installBar({ settingsFilePath, repoRoot: '/repo', delimiter: ':', installedPluginsPath: NO_PLUGINS });
   assert.strictEqual(first.added, true);
   assert.strictEqual(first.settings.env.CLAUDE_CODE_PLUGIN_DIRS, `/my/mod:${path.join('/repo', 'bar')}`);
   assert.strictEqual(first.settings.env.OTHER, '1');
   assert.strictEqual(first.settings.theme, 'dark');
 
-  const second = install.installBar({ settingsFilePath, repoRoot: '/repo', delimiter: ':' });
+  const second = install.installBar({ settingsFilePath, repoRoot: '/repo', delimiter: ':', installedPluginsPath: NO_PLUGINS });
   assert.strictEqual(second.added, false);
   const onDisk = JSON.parse(fs.readFileSync(settingsFilePath, 'utf8'));
   assert.strictEqual(onDisk.env.CLAUDE_CODE_PLUGIN_DIRS, `/my/mod:${path.join('/repo', 'bar')}`);
@@ -229,11 +230,39 @@ test('installBar adds bar/ to CLAUDE_CODE_PLUGIN_DIRS, keeps other folders and e
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+test('installStatusLine keeps a refreshInterval of 0 (refresh turned off on purpose)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-install-'));
+  const settingsFilePath = path.join(dir, 'settings.json');
+  fs.writeFileSync(settingsFilePath, JSON.stringify({
+    statusLine: { type: 'command', command: install.statusLineCommand(REPO_ROOT), refreshInterval: 0 },
+  }));
+  assert.strictEqual(install.installStatusLine({ settingsFilePath, repoRoot: REPO_ROOT }).settings.statusLine.refreshInterval, 0);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('installBar does not add the folder when quota-guardian-bar is installed from the marketplace', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-install-'));
+  const settingsFilePath = path.join(dir, 'settings.json');
+  const installedPluginsPath = path.join(dir, 'installed_plugins.json');
+  fs.writeFileSync(installedPluginsPath, JSON.stringify({ plugins: { 'quota-guardian-bar@claude-quota-guardian': [{}] } }));
+
+  const result = install.installBar({ settingsFilePath, repoRoot: REPO_ROOT, installedPluginsPath });
+  assert.strictEqual(result.added, false);
+  assert.strictEqual(result.asPlugin, true);
+  assert.strictEqual(fs.existsSync(settingsFilePath), false);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('samePath ignores case on Windows only', () => {
+  assert.strictEqual(install.samePath('C:\\Repo\\bar', 'c:\\repo\\BAR', 'win32'), true);
+  assert.strictEqual(install.samePath('/repo/bar', '/Repo/bar', 'linux'), false);
+});
+
 test('installBar works on a settings file with no env block', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-install-'));
   const settingsFilePath = path.join(dir, 'settings.json');
 
-  const result = install.installBar({ settingsFilePath, repoRoot: REPO_ROOT });
+  const result = install.installBar({ settingsFilePath, repoRoot: REPO_ROOT, installedPluginsPath: NO_PLUGINS });
   assert.strictEqual(result.settings.env.CLAUDE_CODE_PLUGIN_DIRS, path.join(REPO_ROOT, 'bar'));
 
   fs.rmSync(dir, { recursive: true, force: true });

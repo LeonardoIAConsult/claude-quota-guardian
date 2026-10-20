@@ -38,6 +38,27 @@ All three read one rule, `lib/cache-clock.js` (B carries a copy in TypeScript: h
 6. README (ES + EN) and landing (ES + EN) explain the new benefit and how Guardian saves tokens,
    with no invented numbers.
 
+## Fixed during review (code review, 2026-10-19)
+
+- "Limpiar y seguir" only appears, and `/clear` only runs, once a `pending.json` written since the
+  handoff is unconsumed and names its checkpoint (`bar/hooks/register.test.tsx` covers it).
+- `/continuity-checkpoint` replaces a consumed leftover `pending.json` instead of updating it.
+- A manual checkpoint (`triggeredBy: "manual"`) never blocks tools, and never stands in for a real
+  cutoff: hitting the quota on top of one still writes the blocking pending.
+- The status line writes `state.json` only when the rate limits changed (idle refresh kept
+  `updatedAt` fresh and the watcher never ramped down).
+- The native host also reads an OAuth login on disk as a subscription signal.
+- `refreshInterval: 0` is kept; the bar is not added twice when installed from the marketplace;
+  Windows paths compare case-insensitively.
+
+## Backlog
+
+- One shared "last activity" and "subscription" signal for the three surfaces (today the bar uses
+  the end of the main turn, the status line and the host the transcript mtime); they can differ
+  by the length of the last answer.
+- A repo moved after install leaves its old `bar/` path in `CLAUDE_CODE_PLUGIN_DIRS`; the
+  uninstaller run from the new path does not remove it.
+
 ## Out of scope
 
 Changing the badge (stays the quota %), notifications from the extension, publishing the

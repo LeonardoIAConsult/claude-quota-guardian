@@ -162,6 +162,30 @@ test('performCheck keeps the pending while quota is still over threshold', (t) =
   assert.strictEqual(readPending().consumed, false);
 });
 
+test('performCheck still writes the blocking pending when only a manual checkpoint is waiting', (t) => {
+  const { cwd, config, readPending } = setupRelease(t, {
+    ccusage: ccusageAt(97),
+    pending: { triggeredBy: 'manual', sessionId: null, checkpointFile: '/x/manual-checkpoint.md' },
+  });
+
+  assert.ok(performCheck(baseInput(cwd), { config }));
+  const p = readPending();
+  assert.notStrictEqual(p.triggeredBy, 'manual');
+  assert.strictEqual(p.consumed, false);
+  assert.strictEqual(p.checkpointFile, null);
+});
+
+test('performCheck leaves a manual checkpoint alone while quota is fine', (t) => {
+  const { cwd, config, readPending } = setupRelease(t, {
+    ccusage: ccusageAt(42),
+    pending: { triggeredBy: 'manual', sessionId: null, checkpointFile: '/x/manual-checkpoint.md' },
+  });
+
+  assert.strictEqual(performCheck(baseInput(cwd), { config }), null);
+  assert.strictEqual(readPending().triggeredBy, 'manual');
+  assert.strictEqual(readPending().consumed, false);
+});
+
 function contextReleaseCase(t, ownerSession) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-threshold-'));
   process.env.CQG_HOME = home;

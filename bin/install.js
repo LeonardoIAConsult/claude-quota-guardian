@@ -80,7 +80,7 @@ function installStatusLine({ settingsFilePath, repoRoot }) {
   // refreshInterval re-runs the line while the session is idle, so the cache
   // countdown keeps moving without a new message. A value the user already set
   // on our line is kept.
-  const refreshInterval = (existing.statusLine && existing.statusLine.refreshInterval) || STATUSLINE_REFRESH_SECONDS;
+  const refreshInterval = (existing.statusLine && existing.statusLine.refreshInterval) ?? STATUSLINE_REFRESH_SECONDS;
   const merged = { ...existing, statusLine: { type: 'command', command, refreshInterval } };
   fs.mkdirSync(path.dirname(settingsFilePath), { recursive: true });
   atomicWriteFileSync(settingsFilePath, JSON.stringify(merged, null, 2));
@@ -102,13 +102,27 @@ function splitPathList(value, delimiter) {
   return String(value || '').split(delimiter).map((p) => p.trim()).filter(Boolean);
 }
 
-function installBar({ settingsFilePath, repoRoot, delimiter = path.delimiter }) {
+// Windows paths compare case-insensitively.
+function samePath(a, b, platform = process.platform) {
+  const norm = (p) => (platform === 'win32' ? path.resolve(p).toLowerCase() : path.resolve(p));
+  return norm(a) === norm(b);
+}
+
+// The bar installed from the marketplace (/plugin install quota-guardian-bar)
+// would load twice if we also listed our folder: two bars, two timers.
+function barInstalledAsPlugin(installedPluginsPath) {
+  const installed = readJsonOrEmpty(installedPluginsPath);
+  return Object.keys(installed.plugins || {}).some((id) => id.startsWith('quota-guardian-bar@'));
+}
+
+function installBar({ settingsFilePath, repoRoot, delimiter = path.delimiter, installedPluginsPath = paths.installedPluginsPath() }) {
   const existing = readJsonOrEmpty(settingsFilePath);
   const env = { ...(existing.env || {}) };
   const dirs = splitPathList(env[PLUGIN_DIRS_VAR], delimiter);
   const dir = barDir(repoRoot);
 
-  if (dirs.includes(dir)) return { settings: existing, added: false };
+  if (dirs.some((d) => samePath(d, dir))) return { settings: existing, added: false };
+  if (barInstalledAsPlugin(installedPluginsPath)) return { settings: existing, added: false, asPlugin: true };
 
   env[PLUGIN_DIRS_VAR] = [...dirs, dir].join(delimiter);
   const merged = { ...existing, env };
@@ -202,7 +216,11 @@ function run({ repoRoot, platform = process.platform, execFn = execFileSync, log
   } else {
     log(`watcher schedule NOT registered (${schedule.error}). Manual setup: see docs/configuration.md`);
   }
-  log(bar.added ? 'cache bar enabled (shows above the prompt from the next session)' : 'cache bar already enabled');
+  if (bar.asPlugin) {
+    log('cache bar already installed as the quota-guardian-bar plugin (not added again)');
+  } else {
+    log(bar.added ? 'cache bar enabled (shows above the prompt from the next session)' : 'cache bar already enabled');
+  }
   if (host.success) {
     log('browser bridge registered (the extension can show the cache countdown)');
   } else {
@@ -229,6 +247,8 @@ module.exports = {
   PLUGIN_DIRS_VAR,
   barDir,
   splitPathList,
+  samePath,
+  barInstalledAsPlugin,
   installBar,
   installNativeHost,
   expandHome,

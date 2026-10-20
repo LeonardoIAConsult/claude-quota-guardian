@@ -115,6 +115,27 @@ test('statusline exits cleanly with bad stdin', () => {
   fs.rmSync(home, { recursive: true, force: true });
 });
 
+test('statusline does not rewrite state.json when the rate limits did not change (idle refresh)', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-home-'));
+  const input = {
+    cwd: 'C:\\fake\\project',
+    rate_limits: { five_hour: { used_percentage: 23.5, resets_at: 1738425600 }, seven_day: { used_percentage: 71.2, resets_at: 1738857600 } },
+  };
+  runHook(input, { CQG_HOME: home });
+  const file = stateFileFor(home, 'C:\\fake\\project');
+  const first = JSON.parse(fs.readFileSync(file, 'utf8')).updatedAt;
+  const stale = new Date(Date.now() - 3600000);
+  fs.utimesSync(file, stale, stale);
+
+  runHook(input, { CQG_HOME: home });
+  assert.strictEqual(JSON.parse(fs.readFileSync(file, 'utf8')).updatedAt, first);
+  assert.strictEqual(Math.round(fs.statSync(file).mtimeMs / 1000), Math.round(stale.getTime() / 1000));
+
+  runHook({ ...input, rate_limits: { ...input.rate_limits, seven_day: { used_percentage: 80, resets_at: 1738857600 } } }, { CQG_HOME: home });
+  assert.strictEqual(JSON.parse(fs.readFileSync(file, 'utf8')).rateLimitPct, 80);
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
 function transcriptAgedMinutes(dir, minutes) {
   const file = path.join(dir, 'transcript.jsonl');
   fs.writeFileSync(file, '{}\n');

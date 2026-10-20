@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { Register } from 'claude-code'
+import type { EngineInterface, Register } from 'claude-code'
 
 import type { CacheConfig, Usage } from '../types'
 
@@ -57,19 +57,65 @@ function parseConfig(text: string): CacheConfig {
   }
 }
 
+// A checkpoint the next session will really load: a pending.json written
+// since the handoff started (`since`), not consumed yet, naming its checkpoint
+// file. /clear is offered (and run) only when one exists, so the button can
+// never wipe a conversation that has nothing to come back to.
+async function freshCheckpoint($: EngineInterface, root: string | undefined, since: number): Promise<boolean> {
+  if (root === undefined || since === 0) {
+    return false
+  }
+
+  try {
+    for (const dir of await $.fs.list(root)) {
+      if (dir.kind !== 'dir') {
+        continue
+      }
+
+      const pending = (await $.fs.list(`${root}/${dir.name}`)).find(f => f.name === 'pending.json')
+
+      // 2 s of slack between the engine clock and the file system's mtime
+      if (pending === undefined || pending.mtimeMs < since - 2000) {
+        continue
+      }
+
+      const data = JSON.parse(await $.fs.read(`${root}/${dir.name}/pending.json`))
+
+      if (data?.consumed === false && typeof data.checkpointFile === 'string' && data.checkpointFile !== '') {
+        return true
+      }
+    }
+  } catch {
+    return false
+  }
+
+  return false
+}
+
 export const register: Register = on => {
   let warned = false
   let ticking = false
+  let root: string | undefined
+  let handoffAt = 0
 
   on('session.start', async ($, e, next) => {
     const t = await $.clock.now()
     await update($, now, () => t)
+    // A new conversation (start, /clear, /resume) has no cache of its own yet
+    // and no handoff in flight; the previous one's numbers would mislead.
+    warned = false
+    handoffAt = 0
+    await update($, lastTurn, () => 0)
+    await update($, usage, () => null)
+    await update($, ready, () => false)
+    await update($, waiting, () => false)
 
     const home = (await $.env.get('CQG_HOME')) ?? (await $.env.get('USERPROFILE')) ?? (await $.env.get('HOME'))
+    root = home === undefined ? undefined : `${home}/.claude/session-continuity`
 
-    if (home !== undefined) {
+    if (root !== undefined) {
       try {
-        const text = await $.fs.read(`${home}/.claude/session-continuity/config.json`)
+        const text = await $.fs.read(`${root}/config.json`)
         await update($, config, () => parseConfig(text))
       } catch {
         await update($, config, () => DEFAULTS)
@@ -128,7 +174,10 @@ export const register: Register = on => {
       await update($, lastTurn, () => t)
       await update($, now, () => t)
 
-      if (await read($, waiting)) {
+      // Any main turn can end while a handoff is pending (one already running
+      // when Traspaso was pressed, say): only the one that left a checkpoint
+      // turns the button into "Limpiar y seguir".
+      if ((await read($, waiting)) && (await freshCheckpoint($, root, handoffAt))) {
         await update($, waiting, () => false)
         await update($, ready, () => true)
       }
@@ -182,6 +231,13 @@ export const register: Register = on => {
             onPress={async () => {
               await update($, ready, () => false)
 
+              if (!(await freshCheckpoint($, root, handoffAt))) {
+                handoffAt = 0
+                $.ui.toast('No encontré un checkpoint pendiente de cargar, así que no limpié la sesión. Pulsa Traspaso otra vez.')
+
+                return
+              }
+
               try {
                 await $.command.run({ command: 'clear', args: '' })
                 await $.prompt.submit({ text: 'Retoma desde el checkpoint de Guardian.' })
@@ -208,12 +264,19 @@ export const register: Register = on => {
                 return
               }
 
+              handoffAt = await $.clock.now()
               await update($, waiting, () => true)
 
               try {
                 await $.command.run({ command: found.name, args: '' })
               } catch {
-                await $.prompt.submit({ text: `/${found.name}` })
+                try {
+                  await $.prompt.submit({ text: `/${found.name}` })
+                } catch {
+                  handoffAt = 0
+                  await update($, waiting, () => false)
+                  $.ui.toast(`No se pudo iniciar el traspaso. Escribe /${found.name}.`)
+                }
               }
             }}
           />

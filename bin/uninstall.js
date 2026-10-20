@@ -15,6 +15,7 @@ const {
   PLUGIN_DIRS_VAR,
   barDir,
   splitPathList,
+  samePath,
 } = require('./install');
 
 function readJsonOrEmpty(filePath) {
@@ -96,9 +97,9 @@ function uninstallBar({ settingsFilePath, repoRoot, delimiter = path.delimiter }
   const env = existing.env || {};
   const dirs = splitPathList(env[PLUGIN_DIRS_VAR], delimiter);
   const dir = barDir(repoRoot);
-  if (!dirs.includes(dir)) return { removed: false };
+  if (!dirs.some((d) => samePath(d, dir))) return { removed: false };
 
-  const rest = dirs.filter((d) => d !== dir);
+  const rest = dirs.filter((d) => !samePath(d, dir));
   const nextEnv = { ...env };
   if (rest.length > 0) nextEnv[PLUGIN_DIRS_VAR] = rest.join(delimiter);
   else delete nextEnv[PLUGIN_DIRS_VAR];

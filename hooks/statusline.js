@@ -41,6 +41,12 @@ function cacheRateLimit(cwd, rateLimits) {
   try {
     const statePath = paths.statePath(cwd);
     const prev = readJsonSafe(statePath) || {};
+    // The line re-renders every refreshInterval while the session is idle; a
+    // write with nothing new would keep updatedAt fresh and the watcher would
+    // never see this session go quiet (it ramps down on stale updatedAt).
+    const unchanged = (!top || (prev.rateLimitPct === top.pct && prev.rateLimitResetAt === top.resetAt))
+      && (Object.keys(byModel).length === 0 || JSON.stringify(prev.rateLimitByModel) === JSON.stringify(byModel));
+    if (unchanged) return;
     const next = { ...prev, updatedAt: new Date().toISOString() };
     if (top) {
       next.rateLimitPct = top.pct;

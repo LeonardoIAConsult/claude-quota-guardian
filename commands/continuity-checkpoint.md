@@ -84,9 +84,9 @@ Write to the `checkpoint` path from Step 1 — **only that exact path**: a check
 
 Read the `pending` path from Step 1.
 
-If it exists (the check-usage hook created it): update its `checkpointFile` field to the `checkpoint` path from Step 1, keeping all other fields unchanged. Write it back atomically — write to `<pending>.tmp` in the same directory, then rename over `pending.json`.
+If it exists and its `consumed` is `false` (the check-usage hook created it for this cutoff): update its `checkpointFile` field to the `checkpoint` path from Step 1, keeping all other fields unchanged. Write it back atomically — write to `<pending>.tmp` in the same directory, then rename over `pending.json`.
 
-If it does NOT exist (this command was run manually, not triggered by the hook): create it with this shape, then write it atomically the same way:
+If it does NOT exist, or it exists with `consumed: true` (a leftover from an earlier resume, which the next session would ignore): this is a manual checkpoint. Replace it with this shape, then write it atomically the same way:
 
 ```json
 {

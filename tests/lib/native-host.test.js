@@ -10,6 +10,7 @@ const { DEFAULTS } = require('../../lib/config');
 const HOST_SCRIPT = path.join(__dirname, '..', '..', 'native-host', 'guardian-host.js');
 const NOW = Date.parse('2026-10-19T20:00:00Z');
 const MIN = 60000;
+const NO_CREDS = path.join(os.tmpdir(), 'cqg-no-credentials-xyz.json');
 
 function makeRoot() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-host-'));
@@ -83,7 +84,7 @@ test('collectCacheSessions: one entry per recent project, newest first, only nam
   fs.mkdirSync(path.join(root, 'broken'));
   fs.writeFileSync(path.join(root, 'broken', 'state.json'), '{not json');
 
-  const sessions = host.collectCacheSessions({ config: DEFAULTS, now: NOW, root });
+  const sessions = host.collectCacheSessions({ config: DEFAULTS, now: NOW, root, oauthCredentialsPath: NO_CREDS });
   assert.deepStrictEqual(sessions.map((s) => s.project), ['api', 'web']);
   assert.deepStrictEqual(sessions[0], {
     project: 'api', ttlMinutes: 5, minutesLeft: 3, expired: false, warn: true,
@@ -106,7 +107,7 @@ test('collectCacheSessions: the transcript mtime beats an older stored lastActiv
   fs.utimesSync(transcript, recent, recent);
   writeState(root, 'aaa', { projectName: 'web', transcriptPath: transcript, apiUsage: { pct: 1 }, lastActivityAt: new Date(NOW - 30 * MIN).toISOString() });
 
-  const [s] = host.collectCacheSessions({ config: DEFAULTS, now: NOW, root });
+  const [s] = host.collectCacheSessions({ config: DEFAULTS, now: NOW, root, oauthCredentialsPath: NO_CREDS });
   assert.strictEqual(s.minutesLeft, 59);
   assert.ok(!JSON.stringify(s).includes('t.jsonl'));
 
@@ -123,8 +124,20 @@ test('collectCacheSessions: one session that changed folders is listed once, und
   writeState(root, 'bbb', { projectName: 'repo-sub', transcriptPath: transcript, sessionId: 's1', updatedAt: new Date(NOW - 1 * MIN).toISOString() });
   writeState(root, 'ccc', { projectName: 'other', sessionId: 's2', lastActivityAt: new Date(NOW - 3 * MIN).toISOString() });
 
-  const sessions = host.collectCacheSessions({ config: DEFAULTS, now: NOW, root });
+  const sessions = host.collectCacheSessions({ config: DEFAULTS, now: NOW, root, oauthCredentialsPath: NO_CREDS });
   assert.deepStrictEqual(sessions.map((s) => s.project), ['repo-sub', 'other']);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('collectCacheSessions: an OAuth login on disk means subscription even without Guardian\'s status line', () => {
+  const root = makeRoot();
+  const creds = path.join(root, 'creds.json');
+  fs.writeFileSync(creds, '{}');
+  writeState(root, 'aaa', { projectName: 'web', lastActivityAt: new Date(NOW - 10 * MIN).toISOString() });
+
+  const [s] = host.collectCacheSessions({ config: DEFAULTS, now: NOW, root, oauthCredentialsPath: creds });
+  assert.strictEqual(s.ttlMinutes, 60);
+  assert.strictEqual(s.minutesLeft, 50);
   fs.rmSync(root, { recursive: true, force: true });
 });
 
@@ -133,14 +146,14 @@ test('collectCacheSessions: caps the list and the project name length', () => {
   for (let i = 0; i < 12; i += 1) {
     writeState(root, `p${i}`, { projectName: 'x'.repeat(200), lastActivityAt: new Date(NOW - i * MIN).toISOString() });
   }
-  const sessions = host.collectCacheSessions({ config: DEFAULTS, now: NOW, root });
+  const sessions = host.collectCacheSessions({ config: DEFAULTS, now: NOW, root, oauthCredentialsPath: NO_CREDS });
   assert.strictEqual(sessions.length, host.MAX_SESSIONS);
   assert.strictEqual(sessions[0].project.length, 80);
   fs.rmSync(root, { recursive: true, force: true });
 });
 
 test('collectCacheSessions: missing root is an empty list', () => {
-  assert.deepStrictEqual(host.collectCacheSessions({ config: DEFAULTS, now: NOW, root: path.join(os.tmpdir(), 'cqg-nope-xyz') }), []);
+  assert.deepStrictEqual(host.collectCacheSessions({ config: DEFAULTS, now: NOW, root: path.join(os.tmpdir(), 'cqg-nope-xyz'), oauthCredentialsPath: NO_CREDS }), []);
 });
 
 test('handleMessage: unknown requests are refused, cache.enabled=false answers empty', () => {
