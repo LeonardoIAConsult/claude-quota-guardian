@@ -71,7 +71,7 @@ The idea came from a "token-saving kit" shared as an artifact. I audited it, kep
 |---|---|---|
 | **Status line** | `cache 42m`, `cache 3m!` at 5 minutes or less, `cache expired` | Guardian's own line, when the installer could claim the `statusLine` slot (refreshes every 30 s) |
 | **Bar above the prompt** | Live cache, context, 5h, week, a **Traspaso** (handoff) button and then **Limpiar y seguir** (clear and continue) | `node bin/install.js` turns it on; as a plugin: `quota-guardian-bar` |
-| **Browser extension** | One row per Claude Code session of the last 24 h, with the minutes left | `node bin/install.js` registers the local bridge; reload the extension |
+| **Browser extension** | One row per Claude Code session with a live cache, named after its project, with the minutes left | `node bin/install.js` registers the local bridge; reload the extension |
 
 The bar and the extension speak Spanish today, like Guardian's other messages.
 
@@ -82,7 +82,7 @@ The bar and the extension speak Spanish today, like Guardian's other messages.
 - **Toolbar badge**: the % of the most-pressing window (session or weekly), colored green/orange/red by how close it is to the cap. Refreshed in the background.
 - **Popup**: Session (5h) and Weekly as the main bars; per-model limits (Fable, etc.) as advisory; a reset countdown for each window.
 - **Dollar credits** (e.g. the promotional credit for cloud sessions): used, remaining and expiry. Informational only: never in the badge or the block. From the terminal: `node scripts/credits.js`.
-- **Claude Code cache**: how long the cache of each Claude Code session of the last 24 h has left, green, orange at 5 minutes or less, red once expired.
+- **Claude Code cache**: how long the cache of each Claude Code session that still has one has left, green, orange at 5 minutes or less. Once it expires, the session leaves the list.
 - **No tokens, no secrets**: it uses the same call the Claude app's own Usage screen makes, authenticated with your existing claude.ai session cookies. Only host permission: `claude.ai`. It sends nothing to third parties.
 - **The cache is read on your machine, not online**: a browser cannot read files, so `node bin/install.js` registers a small local program (native messaging) that only this extension can start. It reads Guardian's state files and answers with project names and minutes. Never paths, never the content of your conversations.
 

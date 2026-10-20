@@ -71,7 +71,7 @@ La idea me llegó de un "kit de ahorro de tokens" que circulaba como artifact. L
 |---|---|---|
 | **Barra de estado** | `cache 42m`, `cache 3m!` cuando quedan 5 min o menos, `cache expired` | La de Guardian, si el instalador pudo reclamar el `statusLine` (se refresca cada 30 s) |
 | **Barra encima del prompt** | Caché en vivo, contexto, 5 h, semana, botón **Traspaso** y luego **Limpiar y seguir** | `node bin/install.js` la activa sola; como plugin: `quota-guardian-bar` |
-| **Extensión del navegador** | Una fila por cada sesión de Claude Code de las últimas 24 h, con los minutos que quedan | `node bin/install.js` registra el puente local; recarga la extensión |
+| **Extensión del navegador** | Una fila por cada sesión de Claude Code con el caché vivo, con el nombre de su proyecto y los minutos que quedan | `node bin/install.js` registra el puente local; recarga la extensión |
 
 ## Extensión de navegador (monitor de consumo)
 
@@ -80,7 +80,7 @@ En `extension/` hay una extensión **Manifest V3** (Chrome/Edge/Brave) para **ve
 - **Insignia (badge)** en la barra: el % de la ventana más apretada (sesión o semanal), en verde/naranja/rojo según cercanía al tope. Se actualiza en segundo plano.
 - **Popup**: Sesión (5h) y Semanal como barras principales; los límites por modelo (Fable, etc.) como aviso; cuenta regresiva de reinicio de cada ventana.
 - **Créditos en dólares** (por ejemplo, el crédito promocional para sesiones en la nube): cuánto usaste, cuánto te queda y cuándo vence. Es solo informativo: no cuenta para la insignia ni para el bloqueo. Desde la terminal: `node scripts/credits.js`.
-- **Caché de Claude Code**: cuánto le queda al caché de cada sesión de Claude Code de las últimas 24 h, en verde, naranja cuando quedan 5 minutos o menos, y rojo cuando venció.
+- **Caché de Claude Code**: cuánto le queda al caché de cada sesión de Claude Code que lo tiene vivo, en verde, y naranja cuando quedan 5 minutos o menos. Cuando venció, la sesión sale de la lista.
 - **Sin tokens ni secretos**: usa la misma llamada que la pantalla de Uso de la propia app de Claude, autenticada con las cookies de tu sesión de claude.ai. Único permiso de host: `claude.ai`. No envía datos a terceros.
 - **El caché se lee en tu equipo, no en internet**: el navegador no puede leer archivos, así que `node bin/install.js` registra un pequeño programa local (native messaging) que solo esta extensión puede abrir. Lee los archivos de estado de Guardian y responde nombres de proyecto y minutos. Nunca rutas, nunca el contenido de tus conversaciones.
 
