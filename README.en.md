@@ -104,7 +104,7 @@ Install: `chrome://extensions` → Developer mode → **Load unpacked** → the 
 - **Works on any plan and any OS**: auto-detects only the installing user's quota (Pro/Max/Team) by reading Claude Code's OAuth token — a file on Windows/Linux, the **Keychain on macOS**.
 - **Visual monitor**: browser extension with badge + popup (above).
 - **One-command install, clean uninstall**: merges its hooks into `settings.json` without touching yours; the uninstaller only removes its own.
-- **359 tests**: 337 with `npm test`, run in CI on Windows, macOS and Linux across Node 18 and 20, and 22 for the bar with `claude plugin test bar`.
+- **366 tests**: 344 with `npm test`, run in CI on Windows, macOS and Linux across Node 18 and 20, and 22 for the bar with `claude plugin test bar`.
 - **Extensible to other AI providers**: adapter architecture; ships with notify-only monitoring of **OpenAI Codex CLI** today.
 
 ## Who is it for?
