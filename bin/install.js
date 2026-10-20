@@ -8,6 +8,7 @@ const { DEFAULTS, loadConfig } = require('../lib/config');
 const { atomicWriteFileSync } = require('../lib/atomic-write');
 const { ensureHooksMerged } = require('../lib/hooks-merge');
 const scheduledTask = require('../lib/scheduled-task');
+const nativeHost = require('../lib/native-host');
 
 function deepMerge(base, overlay) {
   const result = { ...base };
@@ -76,10 +77,67 @@ function installStatusLine({ settingsFilePath, repoRoot }) {
     return { settings: existing, claimed: false, existingCommand: existing.statusLine.command };
   }
 
-  const merged = { ...existing, statusLine: { type: 'command', command } };
+  // refreshInterval re-runs the line while the session is idle, so the cache
+  // countdown keeps moving without a new message. A value the user already set
+  // on our line is kept.
+  const refreshInterval = (existing.statusLine && existing.statusLine.refreshInterval) || STATUSLINE_REFRESH_SECONDS;
+  const merged = { ...existing, statusLine: { type: 'command', command, refreshInterval } };
   fs.mkdirSync(path.dirname(settingsFilePath), { recursive: true });
   atomicWriteFileSync(settingsFilePath, JSON.stringify(merged, null, 2));
   return { settings: merged, claimed: true };
+}
+
+const STATUSLINE_REFRESH_SECONDS = 30;
+
+// The bar above the prompt (bar/) is a hooks module, loaded as a plugin folder
+// through CLAUDE_CODE_PLUGIN_DIRS in settings.json's env block. The variable is
+// a path list, so other folders already in it are kept.
+const PLUGIN_DIRS_VAR = 'CLAUDE_CODE_PLUGIN_DIRS';
+
+function barDir(repoRoot) {
+  return path.join(repoRoot, 'bar');
+}
+
+function splitPathList(value, delimiter) {
+  return String(value || '').split(delimiter).map((p) => p.trim()).filter(Boolean);
+}
+
+function installBar({ settingsFilePath, repoRoot, delimiter = path.delimiter }) {
+  const existing = readJsonOrEmpty(settingsFilePath);
+  const env = { ...(existing.env || {}) };
+  const dirs = splitPathList(env[PLUGIN_DIRS_VAR], delimiter);
+  const dir = barDir(repoRoot);
+
+  if (dirs.includes(dir)) return { settings: existing, added: false };
+
+  env[PLUGIN_DIRS_VAR] = [...dirs, dir].join(delimiter);
+  const merged = { ...existing, env };
+  fs.mkdirSync(path.dirname(settingsFilePath), { recursive: true });
+  atomicWriteFileSync(settingsFilePath, JSON.stringify(merged, null, 2));
+  return { settings: merged, added: true };
+}
+
+// Registers native-host/guardian-host.js with Chrome, Edge and Brave so the
+// extension can show the cache countdown (see lib/native-host.js).
+function installNativeHost({ platform, repoRoot, execFn = execFileSync }) {
+  const desc = nativeHost.describeInstall(platform, {
+    nodePath: process.execPath,
+    hostScript: path.join(repoRoot, 'native-host', 'guardian-host.js'),
+  });
+
+  try {
+    for (const file of desc.files) {
+      fs.mkdirSync(path.dirname(file.path), { recursive: true });
+      fs.writeFileSync(file.path, file.content);
+      if (file.mode) fs.chmodSync(file.path, file.mode);
+    }
+    for (const [cmd, ...args] of desc.commands) {
+      execFn(cmd, args, { stdio: 'ignore' });
+    }
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
 }
 
 // /continuity-checkpoint is the main flow; /guardian-continue is the escape
@@ -128,6 +186,8 @@ function run({ repoRoot, platform = process.platform, execFn = execFileSync, log
   const statusLine = installStatusLine({ settingsFilePath: paths.settingsPath(), repoRoot });
   const commandFile = installCommand({ repoRoot, commandsDirPath: paths.commandsDir() });
   const schedule = installSchedule({ platform, repoRoot, execFn });
+  const bar = installBar({ settingsFilePath: paths.settingsPath(), repoRoot });
+  const host = installNativeHost({ platform, repoRoot, execFn });
 
   log(`config: ${paths.configPath()}`);
   log(`hooks merged into: ${paths.settingsPath()}`);
@@ -142,8 +202,14 @@ function run({ repoRoot, platform = process.platform, execFn = execFileSync, log
   } else {
     log(`watcher schedule NOT registered (${schedule.error}). Manual setup: see docs/configuration.md`);
   }
+  log(bar.added ? 'cache bar enabled (shows above the prompt from the next session)' : 'cache bar already enabled');
+  if (host.success) {
+    log('browser bridge registered (the extension can show the cache countdown)');
+  } else {
+    log(`browser bridge NOT registered (${host.error}). The extension still shows your quota.`);
+  }
 
-  return { config, settings: statusLine.settings, commandFile, schedule };
+  return { config, settings: bar.settings, commandFile, schedule, bar, host };
 }
 
 if (require.main === module) {
@@ -159,6 +225,12 @@ module.exports = {
   installCommand,
   COMMAND_FILES,
   installSchedule,
+  STATUSLINE_REFRESH_SECONDS,
+  PLUGIN_DIRS_VAR,
+  barDir,
+  splitPathList,
+  installBar,
+  installNativeHost,
   expandHome,
   run,
 };

@@ -147,5 +147,60 @@ async function load(forceFresh) {
   btn.classList.remove('spinning');
 }
 
-document.getElementById('refresh').addEventListener('click', () => load(true));
+// Bar fill = share of the cache lifetime still left; color follows how close
+// the cache is to expiring, not a quota percentage.
+function cacheRowHtml(s) {
+  const left = Math.max(0, Math.min(100, (s.minutesLeft / s.ttlMinutes) * 100));
+  const cls = s.expired ? 'red' : s.warn ? 'orange' : 'green';
+  const text = s.expired ? 'vencido' : `quedan ${s.minutesLeft} min`;
+  const hint = s.expired
+    ? 'El siguiente mensaje vuelve a pagar todo el contexto. Si vas a seguir mucho, haz el traspaso y empieza limpio.'
+    : s.warn
+      ? 'Envía un mensaje para mantenerlo o haz el traspaso.'
+      : `Dura ${s.ttlMinutes} min desde tu último mensaje.`;
+  return `
+    <div class="row">
+      <div class="row-top">
+        <span class="row-label">${escapeHtml(s.project)}</span>
+        <span class="row-pct">${text}</span>
+      </div>
+      <div class="bar"><span class="${cls}" style="width:${Math.max(2, left)}%"></span></div>
+      <div class="row-reset">${escapeHtml(hint)}</div>
+    </div>`;
+}
+
+const CACHE_HINT = {
+  'no-host': 'Para ver el caché de Claude Code, instala Guardian en este equipo (node bin/install.js) y reinicia el navegador.',
+  'host-error': 'Guardian no pudo leer el caché de Claude Code.',
+};
+
+function renderCache(c) {
+  const section = document.getElementById('cache');
+  const rows = document.getElementById('cache-rows');
+  if (!c || c.disabled) {
+    section.hidden = true;
+    return;
+  }
+  if (!c.ok) {
+    rows.innerHTML = `<div class="row-reset">${escapeHtml(CACHE_HINT[c.reason] || CACHE_HINT['host-error'])}</div>`;
+  } else if (c.sessions.length === 0) {
+    rows.innerHTML = '<div class="row-reset">Sin sesiones de Claude Code en las últimas 24 h.</div>';
+  } else {
+    rows.innerHTML = c.sessions.map(cacheRowHtml).join('');
+  }
+  section.hidden = false;
+}
+
+async function loadCache() {
+  try {
+    renderCache(await chrome.runtime.sendMessage({ type: 'cache' }));
+  } catch (_) {
+    renderCache({ ok: false, reason: 'host-error' });
+  }
+}
+
+document.getElementById('refresh').addEventListener('click', () => { load(true); loadCache(); });
 load(false);
+loadCache();
+// The countdown moves by the minute; keep it current while the popup is open.
+setInterval(loadCache, 30000);

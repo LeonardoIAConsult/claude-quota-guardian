@@ -67,6 +67,24 @@ To add another provider later: write an adapter that returns `{ projectPath, con
 
 **statusLine is a single slot.** Unlike `hooks`, Claude Code's `settings.json` only supports one `statusLine` command — there's no array of them. `bin/install.js`'s `installStatusLine` only claims it when nothing else has (e.g. a status-bar plugin's badge script); if something else already owns it, install logs `statusLine NOT registered` and leaves it untouched rather than overwriting it. In that case, rate_limits tracking stays off until you either free up the slot or manually combine both commands' logic into one script (have it write to `paths.statePath(cwd)` the same way `hooks/statusline.js` does, then print whatever it would otherwise print).
 
+## Prompt-cache countdown (`cache`)
+
+| Key | Default | Meaning |
+|---|---|---|
+| `cache.enabled` | `true` | `false` hides the countdown in the status line, the bar and the extension. |
+| `cache.ttlMinutes` | `null` | `null` = estimate: 60 min when the session reports subscription `rate_limits` (Pro/Max), 5 min otherwise (API key, the API default). A number pins it. |
+| `cache.warnMinutes` | `5` | At or below this many minutes the countdown turns yellow (`cache 3m!`, orange row in the extension, toast in the bar). |
+
+The rule lives in `lib/cache-clock.js`; `bar/hooks/register.tsx` carries the same rule in TypeScript (a hooks module cannot `require` Node code), so change both together. Last activity is the transcript file's modification time; `lib/threshold-check.js` also stores it in `state.json` as `lastActivityAt`, with `projectName` and `transcriptPath`, for the native host.
+
+**It is an estimate.** Anthropic does not expose when a cache entry expires, and its lifetime is measured from the start of the request that last used it, while Guardian's clock starts when that request's answer was written. A long final answer therefore makes the clock run up to its length ahead of the real cache; the warning margin covers the usual case.
+
+**Status line refresh.** When the installer claims the `statusLine` slot it sets `refreshInterval: 30` so the countdown keeps moving while the session is idle (a value you already set on Guardian's line is kept). If another status line owns the slot, the bar above the prompt still shows the countdown.
+
+**Bar above the prompt.** `bar/` is a separate plugin (`quota-guardian-bar`, a hooks module). The standalone installer adds the `bar/` folder to `CLAUDE_CODE_PLUGIN_DIRS` in the `env` block of `~/.claude/settings.json`, keeping any folders already listed; the uninstaller removes only that folder. **Traspaso** runs `/continuity-checkpoint` (or the plugin's prefixed name when installed from the marketplace); when that turn ends it offers **Limpiar y seguir**, which runs `/clear` and lets `hooks/resume-context.js` load the checkpoint into the fresh session.
+
+**Browser bridge (native messaging).** The extension cannot read files, so the installer registers `native-host/guardian-host.js` as the native-messaging host `com.leonardoantolinez.quota_guardian` for Chrome, Edge, Brave and Chromium (registry keys under `HKCU\Software\...\NativeMessagingHosts` on Windows; manifest files in each browser's `NativeMessagingHosts` folder on macOS and Linux). Only the Guardian extension (its ID is pinned by the `key` in `extension/manifest.json`) may start it. It answers one request, `{ type: "cache" }`, with up to 8 sessions active in the last 24 h, each as `{ project, ttlMinutes, minutesLeft, expired, warn, lastActivityAt }`: no paths, no file contents, no network.
+
 ## Plan-quota checks (`ccusage`)
 
 If `plan` is not `"none"`, `getPlanUsage` shells out to `ccusage blocks --json --active` (via `npx`, with `shell: true` so Windows resolves `npx.cmd`). If `ccusage` is not installed or fails, plan-quota checks are silently skipped — only context-window checks remain active.

@@ -114,3 +114,55 @@ test('statusline exits cleanly with bad stdin', () => {
   assert.strictEqual(out.trim(), '');
   fs.rmSync(home, { recursive: true, force: true });
 });
+
+function transcriptAgedMinutes(dir, minutes) {
+  const file = path.join(dir, 'transcript.jsonl');
+  fs.writeFileSync(file, '{}\n');
+  const when = new Date(Date.now() - minutes * 60000);
+  fs.utimesSync(file, when, when);
+  return file;
+}
+
+test('statusline appends the cache countdown: 60 min on a subscription', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-home-'));
+  const out = runHook({
+    cwd: 'C:\\fake\\project',
+    transcript_path: transcriptAgedMinutes(home, 18),
+    rate_limits: { five_hour: { used_percentage: 10, resets_at: 1738425600 } },
+  }, { CQG_HOME: home });
+
+  assert.match(out, /\| cache 42m$/);
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('statusline cache countdown: 5 min estimate without rate_limits, ! near expiry, expired after', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-home-'));
+  const warn = runHook({ cwd: 'C:\\fake\\project', transcript_path: transcriptAgedMinutes(home, 2) }, { CQG_HOME: home });
+  assert.match(warn, /\| cache 3m!$/);
+
+  const expired = runHook({ cwd: 'C:\\fake\\project', transcript_path: transcriptAgedMinutes(home, 6) }, { CQG_HOME: home });
+  assert.match(expired, /\| cache expired$/);
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('statusline cache countdown honours config.cache (pinned ttl, disabled)', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-home-'));
+  const configFile = path.join(home, '.claude', 'session-continuity', 'config.json');
+  fs.mkdirSync(path.dirname(configFile), { recursive: true });
+
+  fs.writeFileSync(configFile, JSON.stringify({ cache: { ttlMinutes: 30 } }));
+  const pinned = runHook({ cwd: 'C:\\fake\\project', transcript_path: transcriptAgedMinutes(home, 10) }, { CQG_HOME: home });
+  assert.match(pinned, /\| cache 20m$/);
+
+  fs.writeFileSync(configFile, JSON.stringify({ cache: { enabled: false } }));
+  const off = runHook({ cwd: 'C:\\fake\\project', transcript_path: transcriptAgedMinutes(home, 10) }, { CQG_HOME: home });
+  assert.doesNotMatch(off, /cache/);
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('statusline omits the cache countdown before the first message (no transcript yet)', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-home-'));
+  const out = runHook({ cwd: 'C:\\fake\\project', transcript_path: path.join(home, 'missing.jsonl') }, { CQG_HOME: home });
+  assert.doesNotMatch(out, /cache/);
+  fs.rmSync(home, { recursive: true, force: true });
+});

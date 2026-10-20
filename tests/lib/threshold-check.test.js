@@ -17,6 +17,32 @@ function baseInput(cwd) {
   };
 }
 
+test('performCheck stores the cache countdown inputs and keeps lastActivityAt when the transcript is gone', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-threshold-'));
+  process.env.CQG_HOME = home;
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-project-'));
+  const transcript = path.join(home, 'transcript.jsonl');
+  fs.copyFileSync(path.join(FIXTURES, 'transcript-50pct.jsonl'), transcript);
+  const when = new Date('2026-10-19T19:00:00Z');
+  fs.utimesSync(transcript, when, when);
+  const config = { plan: 'none', thresholds: { context: 0.995, plan: 0.995 } };
+
+  performCheck({ transcript_path: transcript, cwd, session_id: 's1' }, { config });
+  const first = JSON.parse(fs.readFileSync(paths.statePath(cwd), 'utf8'));
+  assert.strictEqual(first.lastActivityAt, when.toISOString());
+  assert.strictEqual(first.transcriptPath, transcript);
+  assert.strictEqual(first.projectName, path.basename(cwd));
+
+  fs.rmSync(transcript);
+  performCheck({ transcript_path: transcript, cwd, session_id: 's1' }, { config });
+  const second = JSON.parse(fs.readFileSync(paths.statePath(cwd), 'utf8'));
+  assert.strictEqual(second.lastActivityAt, when.toISOString());
+
+  fs.rmSync(home, { recursive: true, force: true });
+  fs.rmSync(cwd, { recursive: true, force: true });
+  delete process.env.CQG_HOME;
+});
+
 test('performCheck throttles ccusage to once every planCheckIntervalToolCalls checks', (t) => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-threshold-'));
   process.env.CQG_HOME = home;

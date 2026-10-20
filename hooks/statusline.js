@@ -5,6 +5,8 @@ const fs = require('node:fs');
 const paths = require('../lib/paths');
 const { atomicWriteFileSync } = require('../lib/atomic-write');
 const { parseRateLimits } = require('../lib/rate-limits');
+const { loadConfig } = require('../lib/config');
+const { cacheStatus, lastActivityMs, resolveTtlMinutes, resolveWarnMinutes } = require('../lib/cache-clock');
 
 function readStdin() {
   try {
@@ -53,7 +55,7 @@ function cacheRateLimit(cwd, rateLimits) {
   }
 }
 
-function renderLine(input) {
+function renderLine(input, cacheConfig) {
   const model = (input.model && (input.model.display_name || input.model.id)) || 'Claude';
   const rl = input.rate_limits || {};
   const fiveHour = rl.five_hour && typeof rl.five_hour.used_percentage === 'number'
@@ -63,7 +65,23 @@ function renderLine(input) {
   const ctxPct = input.context_window && typeof input.context_window.used_percentage === 'number'
     ? `${Math.round(input.context_window.used_percentage)}%` : '--';
 
-  return `${model} | ctx ${ctxPct} | 5h ${fiveHour} 7d ${sevenDay}`;
+  const cache = cacheSegment(input, cacheConfig);
+  return `${model} | ctx ${ctxPct} | 5h ${fiveHour} 7d ${sevenDay}${cache ? ` | ${cache}` : ''}`;
+}
+
+// Prompt-cache countdown (see lib/cache-clock.js). Omitted until the session
+// has a transcript, i.e. before the first message.
+function cacheSegment(input, cacheConfig, now = Date.now()) {
+  if (!cacheConfig || cacheConfig.enabled === false) return null;
+  const status = cacheStatus({
+    lastMs: lastActivityMs(input.transcript_path),
+    ttlMinutes: resolveTtlMinutes(cacheConfig, { hasRateLimits: Boolean(input.rate_limits) }),
+    warnMinutes: resolveWarnMinutes(cacheConfig),
+    now,
+  });
+  if (!status) return null;
+  if (status.expired) return 'cache expired';
+  return `cache ${status.minutesLeft}m${status.warn ? '!' : ''}`;
 }
 
 function main() {
@@ -76,7 +94,7 @@ function main() {
   const cwd = input.cwd || (input.workspace && input.workspace.current_dir) || null;
   cacheRateLimit(cwd, input.rate_limits);
 
-  process.stdout.write(renderLine(input));
+  process.stdout.write(renderLine(input, loadConfig().cache));
 }
 
 try {

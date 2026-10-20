@@ -11,11 +11,13 @@ Guardian ships **two install paths** from the same repo:
 ## Install as a plugin
 
 ```
-/plugin marketplace add LeonardoIAConsult/claude-quota-guardian
-/plugin install claude-quota-guardian@claude-quota-guardian
+/plugin install quota-guardian --marketplace LeonardoIAConsult/claude-quota-guardian
+/plugin install quota-guardian-bar --marketplace LeonardoIAConsult/claude-quota-guardian
 ```
 
-That's it — Claude Code loads the four hooks and the `/continuity-checkpoint` command.
+The first loads the four hooks and the `/continuity-checkpoint` command; the second (optional) adds the cache-countdown bar above the prompt (`bar/`, a hooks module). One-step install needs Claude Code 2.1.275 or later.
+
+**Why the names changed (v1.1).** Claude Code reserves plugin names that start with `claude-` for Anthropic, and `claude plugin validate` rejects `claude-quota-guardian`. The plugins are now `quota-guardian` and `quota-guardian-bar`; the marketplace keeps its name. Earlier installs: `/plugin uninstall claude-quota-guardian@claude-quota-guardian`, then the lines above.
 
 ## Files that make it a plugin (additive; never touch the standalone installer)
 
@@ -26,7 +28,7 @@ That's it — Claude Code loads the four hooks and the `/continuity-checkpoint` 
   - `PostToolUse *` → `hooks/check-usage.js`
   - `Stop *` → `hooks/heartbeat-stop.js`
   - `SessionStart *` → `hooks/resume-context.js`
-- `commands/` (already present) → exposed namespaced: `/claude-quota-guardian:continuity-checkpoint` (the short `/continuity-checkpoint` also resolves when unambiguous).
+- `commands/` (already present) → exposed namespaced: `/quota-guardian:continuity-checkpoint` (the short `/continuity-checkpoint` also resolves when unambiguous).
 
 ## Known trade-offs (plugin vs standalone)
 
@@ -38,7 +40,7 @@ That's it — Claude Code loads the four hooks and the `/continuity-checkpoint` 
    blocking — the real quota comes from the OAuth `usageApi` (session/weekly/per-model),
    which works regardless.
 3. **Command name.** As a plugin the command is namespaced
-   `/claude-quota-guardian:continuity-checkpoint`; the short name resolves too.
+   `/quota-guardian:continuity-checkpoint`; the short name resolves too.
 
 ## Publishing to the community directory (optional, public)
 

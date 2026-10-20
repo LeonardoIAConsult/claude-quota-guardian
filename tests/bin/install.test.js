@@ -83,6 +83,7 @@ test('installStatusLine claims an empty statusLine slot', () => {
 
   assert.strictEqual(result.claimed, true);
   assert.match(result.settings.statusLine.command, /statusline\.js"$/);
+  assert.strictEqual(result.settings.statusLine.refreshInterval, install.STATUSLINE_REFRESH_SECONDS);
 
   const onDisk = JSON.parse(fs.readFileSync(settingsFilePath, 'utf8'));
   assert.strictEqual(onDisk.statusLine.command, result.settings.statusLine.command);
@@ -191,6 +192,93 @@ test('run orchestrates config, hooks, command and schedule', () => {
   assert.ok(fs.existsSync(result.commandFile));
   assert.strictEqual(result.schedule.success, true);
   assert.ok(logs.length > 0);
+
+  fs.rmSync(home, { recursive: true, force: true });
+  delete process.env.CQG_HOME;
+});
+
+test('installStatusLine keeps a refreshInterval the user set on our own line', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-install-'));
+  const settingsFilePath = path.join(dir, 'settings.json');
+  fs.writeFileSync(settingsFilePath, JSON.stringify({
+    statusLine: { type: 'command', command: install.statusLineCommand(REPO_ROOT), refreshInterval: 5 },
+  }));
+
+  const result = install.installStatusLine({ settingsFilePath, repoRoot: REPO_ROOT });
+  assert.strictEqual(result.settings.statusLine.refreshInterval, 5);
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('installBar adds bar/ to CLAUDE_CODE_PLUGIN_DIRS, keeps other folders and env, is idempotent', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-install-'));
+  const settingsFilePath = path.join(dir, 'settings.json');
+  fs.writeFileSync(settingsFilePath, JSON.stringify({ env: { OTHER: '1', CLAUDE_CODE_PLUGIN_DIRS: '/my/mod' }, theme: 'dark' }));
+
+  const first = install.installBar({ settingsFilePath, repoRoot: '/repo', delimiter: ':' });
+  assert.strictEqual(first.added, true);
+  assert.strictEqual(first.settings.env.CLAUDE_CODE_PLUGIN_DIRS, `/my/mod:${path.join('/repo', 'bar')}`);
+  assert.strictEqual(first.settings.env.OTHER, '1');
+  assert.strictEqual(first.settings.theme, 'dark');
+
+  const second = install.installBar({ settingsFilePath, repoRoot: '/repo', delimiter: ':' });
+  assert.strictEqual(second.added, false);
+  const onDisk = JSON.parse(fs.readFileSync(settingsFilePath, 'utf8'));
+  assert.strictEqual(onDisk.env.CLAUDE_CODE_PLUGIN_DIRS, `/my/mod:${path.join('/repo', 'bar')}`);
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('installBar works on a settings file with no env block', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-install-'));
+  const settingsFilePath = path.join(dir, 'settings.json');
+
+  const result = install.installBar({ settingsFilePath, repoRoot: REPO_ROOT });
+  assert.strictEqual(result.settings.env.CLAUDE_CODE_PLUGIN_DIRS, path.join(REPO_ROOT, 'bar'));
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('installNativeHost writes the launcher and manifest under the continuity root and runs the registry commands', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-install-'));
+  process.env.CQG_HOME = home;
+  const calls = [];
+
+  const result = install.installNativeHost({ platform: 'win32', repoRoot: REPO_ROOT, execFn: (cmd, args) => calls.push([cmd, ...args]) });
+  assert.strictEqual(result.success, true);
+  const hostDir = path.join(home, '.claude', 'session-continuity', 'native-host');
+  assert.ok(fs.existsSync(path.join(hostDir, 'guardian-host.cmd')));
+  const manifest = JSON.parse(fs.readFileSync(path.join(hostDir, 'com.leonardoantolinez.quota_guardian.json'), 'utf8'));
+  assert.strictEqual(manifest.path, path.join(hostDir, 'guardian-host.cmd'));
+  assert.strictEqual(calls.length, 4);
+  assert.ok(calls.every((c) => c[0] === 'reg' && c[1] === 'add'));
+
+  fs.rmSync(home, { recursive: true, force: true });
+  delete process.env.CQG_HOME;
+});
+
+test('installNativeHost reports failure instead of throwing when the registry refuses', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-install-'));
+  process.env.CQG_HOME = home;
+
+  const result = install.installNativeHost({ platform: 'win32', repoRoot: REPO_ROOT, execFn: () => { throw new Error('access denied'); } });
+  assert.strictEqual(result.success, false);
+  assert.match(result.error, /access denied/);
+
+  fs.rmSync(home, { recursive: true, force: true });
+  delete process.env.CQG_HOME;
+});
+
+test('run enables the bar and the browser bridge', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-install-'));
+  process.env.CQG_HOME = home;
+
+  const result = install.run({ repoRoot: REPO_ROOT, platform: 'linux', execFn: () => {}, log: () => {} });
+  assert.strictEqual(result.host.success, true);
+  assert.ok(result.settings.env.CLAUDE_CODE_PLUGIN_DIRS.includes(path.join(REPO_ROOT, 'bar')));
+  assert.ok(result.settings.hooks.PostToolUse);
+  assert.ok(result.settings.statusLine);
+  assert.ok(fs.existsSync(path.join(home, '.config', 'google-chrome', 'NativeMessagingHosts', 'com.leonardoantolinez.quota_guardian.json')));
 
   fs.rmSync(home, { recursive: true, force: true });
   delete process.env.CQG_HOME;

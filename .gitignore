@@ -13,3 +13,6 @@ hooks/*.active-*
 *.pfx
 credentials.json
 service-account*.json
+
+# Types the Claude Code engine writes for the bar while it is loaded
+bar/.claude-plugin/types/
