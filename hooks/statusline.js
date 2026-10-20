@@ -12,6 +12,7 @@ const {
   resolveTtlMinutes,
   resolveWarnMinutes,
   sessionLastActivity,
+  sessionSubscription,
   withProvenSession,
 } = require('../lib/cache-clock');
 
@@ -39,15 +40,17 @@ function readJsonSafe(file) {
 // react to them on its own next run: the account window drives the block, the
 // per-model caps let the downgrade nudge use the real Opus/Sonnet quota instead
 // of a single global number.
-function cacheRateLimit(cwd, rateLimits, sessionId) {
-  if (!cwd || !rateLimits) return;
+// Returns the state as it now stands (what it wrote, or `prevState` untouched)
+// so the render below does not read the file a second time.
+function cacheRateLimit(cwd, rateLimits, sessionId, prevState) {
+  if (!cwd || !rateLimits) return prevState;
 
   const { top, byModel } = parseRateLimits(rateLimits);
-  if (!top && Object.keys(byModel).length === 0) return;
+  if (!top && Object.keys(byModel).length === 0) return prevState;
 
   try {
     const statePath = paths.statePath(cwd);
-    const prev = readJsonSafe(statePath) || {};
+    const prev = prevState || {};
     // The line re-renders every refreshInterval while the session is idle; a
     // write with nothing new would keep updatedAt fresh and the watcher would
     // never see this session go quiet (it ramps down on stale updatedAt).
@@ -58,7 +61,7 @@ function cacheRateLimit(cwd, rateLimits, sessionId) {
     const unchanged = (!top || (prev.rateLimitPct === top.pct && prev.rateLimitResetAt === top.resetAt))
       && (Object.keys(byModel).length === 0 || JSON.stringify(prev.rateLimitByModel) === JSON.stringify(byModel))
       && proven === null;
-    if (unchanged) return;
+    if (unchanged) return prevState;
     const next = { ...prev, updatedAt: new Date().toISOString() };
     if (proven !== null) {
       next.subscriptionSessions = proven;
@@ -76,8 +79,10 @@ function cacheRateLimit(cwd, rateLimits, sessionId) {
       next.rateLimitByModel = byModel;
     }
     atomicWriteFileSync(statePath, JSON.stringify(next, null, 2));
+    return next;
   } catch {
     // cache write is best-effort: the status line still renders below regardless
+    return prevState;
   }
 }
 
@@ -104,7 +109,7 @@ function renderLine(input, cacheConfig, state) {
 function cacheSegment(input, cacheConfig, state, now = Date.now()) {
   if (!cacheConfig || cacheConfig.enabled === false) return null;
   const own = state && input.session_id && state.sessionId === input.session_id ? state : null;
-  const subscription = Boolean(input.rate_limits) || Boolean(own && own.subscription === true);
+  const subscription = sessionSubscription(own, { rateLimitsNow: Boolean(input.rate_limits) }) === true;
   const status = cacheStatus({
     lastMs: sessionLastActivity(own, lastActivityMs(input.transcript_path)),
     ttlMinutes: resolveTtlMinutes(cacheConfig, { hasRateLimits: subscription }),
@@ -124,9 +129,8 @@ function main() {
   }
 
   const cwd = input.cwd || (input.workspace && input.workspace.current_dir) || null;
-  cacheRateLimit(cwd, input.rate_limits, input.session_id);
-
-  const state = cwd ? readJsonSafe(paths.statePath(cwd)) : null;
+  const prevState = cwd ? readJsonSafe(paths.statePath(cwd)) : null;
+  const state = cacheRateLimit(cwd, input.rate_limits, input.session_id, prevState);
   process.stdout.write(renderLine(input, loadConfig().cache, state));
 }
 

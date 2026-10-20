@@ -13,7 +13,12 @@
   (`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` or Bedrock/Vertex/Foundry switches mean per-token).
 - After `/clear` or `/resume` the bar forgets the previous conversation's countdown (no
   `session.start` fires for them; the bar now listens to `session.end`).
-- A bar tick that outlives its session no longer leaves an unhandled rejection.
+- A bar tick that outlives its session no longer leaves an unhandled rejection, and a tick
+  in flight across `/clear` no longer writes the old conversation's numbers into the new one.
+- One precedence for the subscription answer in all three surfaces: rate limits (now, or
+  recorded for the session) before the stored answer; `0`/`false`/`off` API switches count as
+  off; a usage reading proves a login only while it is under an hour old.
+- "Limpiar y seguir" only accepts the current project's checkpoint.
 - Installing the browser bridge no longer reports failure when only the cleanup of the old
   folder fails, and never deletes the launcher it just wrote.
 

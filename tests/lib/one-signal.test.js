@@ -141,6 +141,41 @@ test('a proof for another session in the folder leaves the current session\'s an
   assert.strictEqual(state.subscriptionFrom, 'api-env');
 });
 
+test('an API switch written as 0/false/off or empty is a switch turned off', () => {
+  for (const value of ['0', 'false', 'FALSE', 'off', 'no', '', '  ']) {
+    assert.deepStrictEqual(clock.detectSubscription({ env: { CLAUDE_CODE_USE_VERTEX: value }, oauthLogin: true }), { subscription: true, from: 'login' }, JSON.stringify(value));
+  }
+  assert.deepStrictEqual(clock.detectSubscription({ env: { CLAUDE_CODE_USE_VERTEX: '1' }, oauthLogin: true }).from, 'api-env');
+});
+
+test('a usage reading only proves a login while it is recent', () => {
+  const now = Date.parse('2026-10-19T20:00:00Z');
+  assert.strictEqual(clock.freshUsageReading({ fetchedAt: new Date(now - 10 * MIN).toISOString() }, now), true);
+  assert.strictEqual(clock.freshUsageReading({ fetchedAt: new Date(now - 2 * 60 * MIN).toISOString() }, now), false);
+  assert.strictEqual(clock.freshUsageReading({ fetchedAt: new Date(now + 5 * MIN).toISOString() }, now), false);
+  assert.strictEqual(clock.freshUsageReading({ pct: 1 }, now), false);
+  assert.strictEqual(clock.freshUsageReading(null, now), false);
+});
+
+test('performCheck does not inherit another session\'s lastActivityAt when the transcript is not there yet', (t) => {
+  withoutApiEnv(t);
+  const { cwd, home } = sandbox(t);
+  fs.mkdirSync(path.dirname(paths.statePath(cwd)), { recursive: true });
+  fs.writeFileSync(paths.statePath(cwd), JSON.stringify({ sessionId: 'A', lastActivityAt: new Date(Date.now() - 3 * MIN).toISOString() }));
+
+  performCheck({ transcript_path: path.join(home, 'not-yet.jsonl'), cwd, session_id: 'B' }, { config });
+  assert.strictEqual(JSON.parse(fs.readFileSync(paths.statePath(cwd), 'utf8')).lastActivityAt, null);
+});
+
+test('sessionSubscription: the one precedence (rate limits now > proof for this session > stored answer)', () => {
+  assert.strictEqual(clock.sessionSubscription({ subscription: false, subscriptionFrom: 'api-env' }, { rateLimitsNow: true }), true);
+  assert.strictEqual(clock.sessionSubscription({ sessionId: 's1', subscription: false, subscriptionSessions: ['s1'] }), true);
+  assert.strictEqual(clock.sessionSubscription({ sessionId: 's2', subscription: false, subscriptionSessions: ['s1'] }), false);
+  assert.strictEqual(clock.sessionSubscription({ subscription: true }), true);
+  assert.strictEqual(clock.sessionSubscription({}), null);
+  assert.strictEqual(clock.sessionSubscription(null), null);
+});
+
 test('the proven-session list is capped', () => {
   let state = {};
   for (let i = 0; i < clock.MAX_PROVEN_SESSIONS + 5; i += 1) state = { subscriptionSessions: clock.withProvenSession(state, `s${i}`) };
@@ -155,7 +190,7 @@ test('macOS (OAuth token in the Keychain, no credentials file): a usage reading 
 
   // the hooks' cached usage reading (what lib/usage-api.js got with the Keychain token)
   fs.mkdirSync(path.dirname(paths.statePath(cwd)), { recursive: true });
-  fs.writeFileSync(paths.statePath(cwd), JSON.stringify({ apiUsage: { pct: 12, fetchedAt: Date.now() } }));
+  fs.writeFileSync(paths.statePath(cwd), JSON.stringify({ apiUsage: { pct: 12, fetchedAt: new Date().toISOString() } }));
   performCheck({ transcript_path: transcript, cwd, session_id: 's1' }, { config });
   const state = JSON.parse(fs.readFileSync(paths.statePath(cwd), 'utf8'));
   assert.strictEqual(state.subscription, true);

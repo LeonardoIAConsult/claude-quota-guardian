@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { CacheConfig, Usage } from '../types'
-import { readShared, subscriptionOf } from './shared'
+import { projectHash, readShared, subscriptionOf } from './shared'
 
 // The bar above the prompt: prompt-cache countdown, context size, 5h / week,
 // and a one-click handoff through Guardian's /continuity-checkpoint. After the
@@ -45,11 +45,11 @@ function minutesLeft(last: number, ttl: number, at: number): number {
 }
 
 // When the cache was last used: the session's shared answer (state.json plus
-// the transcript's mtime, as the status line and the host compute it); the
-// bar's own turn end only until Guardian has written this session's state.
-// 0 = no activity in this conversation yet.
+// the transcript's mtime, as the status line and the host compute it), or the
+// end of the bar's own last main turn when that is newer: the cache was just
+// used then, whatever a lagging state.json says. 0 = no activity yet.
 function lastActivity(own: number, fromState: number | null | undefined): number {
-  return fromState ?? own
+  return Math.max(own, fromState ?? 0)
 }
 
 // A new conversation (start, /clear, /resume) has no cache of its own yet and
@@ -79,54 +79,54 @@ function parseConfig(text: string): CacheConfig {
   }
 }
 
-// A checkpoint the next session will really load: a pending.json written
-// since the handoff started (`since`), not consumed yet, naming its checkpoint
-// file. /clear is offered (and run) only when one exists, so the button can
-// never wipe a conversation that has nothing to come back to.
-async function freshCheckpoint($: EngineInterface, root: string | undefined, since: number): Promise<boolean> {
-  if (root === undefined || since === 0) {
+// A checkpoint the next session will really load: this project's pending.json
+// (the one /continuity-checkpoint writes and hooks/resume-context.js reads),
+// written since the handoff started (`since`), not consumed yet, naming its
+// checkpoint file. /clear is offered (and run) only when it exists, so the
+// button can never wipe a conversation that has nothing to come back to.
+async function freshCheckpoint(
+  $: EngineInterface,
+  root: string | undefined,
+  folder: string | undefined,
+  since: number,
+): Promise<boolean> {
+  if (root === undefined || folder === undefined || since === 0) {
     return false
   }
 
   try {
-    for (const dir of await $.fs.list(root)) {
-      if (dir.kind !== 'dir') {
-        continue
-      }
+    const pending = (await $.fs.list(`${root}/${folder}`)).find(f => f.name === 'pending.json')
 
-      const pending = (await $.fs.list(`${root}/${dir.name}`)).find(f => f.name === 'pending.json')
-
-      // 2 s of slack between the engine clock and the file system's mtime
-      if (pending === undefined || pending.mtimeMs < since - 2000) {
-        continue
-      }
-
-      const data = JSON.parse(await $.fs.read(`${root}/${dir.name}/pending.json`))
-
-      if (data?.consumed === false && typeof data.checkpointFile === 'string' && data.checkpointFile !== '') {
-        return true
-      }
+    // 2 s of slack between the engine clock and the file system's mtime
+    if (pending === undefined || pending.mtimeMs < since - 2000) {
+      return false
     }
+
+    const data = JSON.parse(await $.fs.read(`${root}/${folder}/pending.json`))
+
+    return data?.consumed === false && typeof data.checkpointFile === 'string' && data.checkpointFile !== ''
   } catch {
     return false
   }
-
-  return false
 }
 
 export const register: Register = on => {
   let warned = false
   let ticking = false
   let root: string | undefined
-  let cwd: string | undefined
+  let folder: string | undefined
   let handoffAt = 0
+  // Bumped whenever a conversation ends or starts: a tick still waiting on the
+  // disk from the previous one must not write its numbers into the new one.
+  let generation = 0
 
   on('session.start', async ($, e, next) => {
     const t = await $.clock.now()
     await update($, now, () => t)
     warned = false
     handoffAt = 0
-    cwd = e.cwd
+    generation += 1
+    folder = await projectHash(e.cwd)
     await forgetConversation($)
 
     const home = (await $.env.get('CQG_HOME')) ?? (await $.env.get('USERPROFILE')) ?? (await $.env.get('HOME'))
@@ -147,9 +147,15 @@ export const register: Register = on => {
         // A tick can outlive its session (it waits on the disk while the
         // session ends): it must never leave a rejection behind.
         void (async () => {
+          const started = generation
           const at = await $.clock.now()
+          const fromState = await readShared($, root, folder)
+
+          if (started !== generation) {
+            return
+          }
+
           await update($, now, () => at)
-          const fromState = await readShared($, root, cwd)
           await update($, shared, () => fromState)
           const last = lastActivity(await read($, lastTurn), fromState?.lastActivity)
           const cfg = await read($, config)
@@ -178,6 +184,7 @@ export const register: Register = on => {
   // and no session.start fires for them: this is where the old one ends.
   on('session.end', async ($, e, next) => {
     if (e.reason === 'clear' || e.reason === 'resume') {
+      generation += 1
       warned = false
       handoffAt = 0
       await forgetConversation($)
@@ -198,8 +205,13 @@ export const register: Register = on => {
       subscription: e.rateLimits.length > 0,
     }
     await update($, usage, () => fresh)
-    const fromState = await readShared($, root, cwd)
-    await update($, shared, () => fromState)
+
+    // measure fires after every API response: read the shared answer only
+    // while the bar has none yet (the tick and turn.complete keep it fresh)
+    if ((await read($, shared)) === null) {
+      const fromState = await readShared($, root, folder)
+      await update($, shared, () => fromState)
+    }
 
     return next(e)
   })
@@ -210,13 +222,13 @@ export const register: Register = on => {
       warned = false
       await update($, lastTurn, () => t)
       await update($, now, () => t)
-      const fromState = await readShared($, root, cwd)
+      const fromState = await readShared($, root, folder)
       await update($, shared, () => fromState)
 
       // Any main turn can end while a handoff is pending (one already running
       // when Traspaso was pressed, say): only the one that left a checkpoint
       // turns the button into "Limpiar y seguir".
-      if ((await read($, waiting)) && (await freshCheckpoint($, root, handoffAt))) {
+      if ((await read($, waiting)) && (await freshCheckpoint($, root, folder, handoffAt))) {
         await update($, waiting, () => false)
         await update($, ready, () => true)
       }
@@ -271,7 +283,7 @@ export const register: Register = on => {
             onPress={async () => {
               await update($, ready, () => false)
 
-              if (!(await freshCheckpoint($, root, handoffAt))) {
+              if (!(await freshCheckpoint($, root, folder, handoffAt))) {
                 handoffAt = 0
                 $.ui.toast('No encontré un checkpoint pendiente de cargar, así que no limpié la sesión. Pulsa Traspaso otra vez.')
 

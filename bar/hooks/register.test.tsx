@@ -20,12 +20,15 @@ const slashes = (p: string): string => p.split(String.fromCharCode(92)).join('/'
 
 type Pending = { consumed: boolean; checkpointFile: string | null; mtimeMs: number } | null
 
-type Disk = { pending: Pending; ran: string[]; shared?: { hash: string; json: object; transcriptMtime?: number } }
+// this project's folder, the only one the bar looks in (cwd '/' in these tests)
+const PROJECT = await projectHash('/')
+
+type Disk = { pending: Pending; ran: string[]; pendingDir?: string; shared?: { hash: string; json: object; transcriptMtime?: number } }
 
 function engine(on: On, state: Disk) {
   on('env.get', (_, e) => ({ value: e.name === 'USERPROFILE' ? 'C:/home' : undefined }))
   on('fs.read', (_, e) => {
-    if (slashes(e.path) === `${ROOT}/pending-dir/pending.json` && state.pending !== null) {
+    if (slashes(e.path) === `${ROOT}/${state.pendingDir ?? PROJECT}/pending.json` && state.pending !== null) {
       return { value: JSON.stringify({ consumed: state.pending.consumed, checkpointFile: state.pending.checkpointFile }) }
     }
 
@@ -37,8 +40,16 @@ function engine(on: On, state: Disk) {
     throw new Error('ENOENT')
   })
   on('fs.list', (_, e) => {
+    // the root lists this project and the one holding the pending, so a bar
+    // that wandered across folders would find another project's checkpoint
     if (slashes(e.path) === ROOT) {
-      return { value: [{ name: 'pending-dir', kind: 'dir', size: 0, mtimeMs: 0, isLink: false }] }
+      return {
+        value: [PROJECT, state.pendingDir ?? PROJECT].map(name => ({ name, kind: 'dir', size: 0, mtimeMs: 0, isLink: false })),
+      }
+    }
+
+    if (slashes(e.path) !== `${ROOT}/${state.pendingDir ?? PROJECT}`) {
+      return { value: [] }
     }
 
     return {
@@ -186,13 +197,32 @@ test("the folder hash matches Guardian's lib/paths.js projectHash", async () => 
   // reference values from lib/paths.js projectHash on Windows (absolute paths,
   // which Claude Code always hands both the hooks and the bar)
   const sep = String.fromCharCode(92)
-  expect(await projectHash(['C:', 'Users', 'Lonardo Antonilez', 'Documents'].join(sep))).toBe('ea61dc111ceb')
-  expect(await projectHash(['C:', 'Users', 'Lonardo Antonilez', 'Documents', 'claude-quota-guardian'].join(sep))).toBe(
-    'ba4f3a9c3c5f',
-  )
+  expect(await projectHash(['C:', 'Users', 'dev', 'project'].join(sep))).toBe('5127cba44e34')
+  expect(await projectHash(['C:', 'Users', 'dev', 'project', 'guardian'].join(sep))).toBe('61e287e92c9c')
+  // spelled the way path.resolve would not: forward slashes, a trailing separator
+  expect(await projectHash('C:/Users/dev/project/')).toBe('5127cba44e34')
+  expect(await projectHash(['C:', 'Users', 'dev', 'project', ''].join(sep))).toBe('5127cba44e34')
 })
 
-test("the session's shared answer wins: an API-key session shows 5 min even if the engine reports rate limits", async ($, on) => {
+test('an API-key session (no rate limits from the engine) shows 5 min from the shared answer', async ($, on) => {
+  engine(on, {
+    pending: null,
+    ran: [],
+    shared: {
+      hash: await projectHash('/'),
+      json: { sessionId: 's1', subscription: false, subscriptionFrom: 'api-env', lastActivityAt: new Date().toISOString() },
+    },
+  })
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.session.measure({ context: { tokens: 20_000, window: 1_000_000, percent: 2 }, rateLimits: [], changed: [] })
+  await $.turn.complete({ answer: 'ok', durationMs: 1, isAborted: false, turnId: 't1', reason: 'answer' })
+
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect((await ui.find({ type: 'Text', text: /Caché [0-9]+ min/ }))?.text).toBe('Caché 5 min')
+  await ui.unmount()
+})
+
+test("the engine's rate limits beat a stored api-env answer, as in the status line (key exported but declined)", async ($, on) => {
   engine(on, {
     pending: null,
     ran: [],
@@ -204,7 +234,7 @@ test("the session's shared answer wins: an API-key session shows 5 min even if t
   await startWithUsage($)
 
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  expect((await ui.find({ type: 'Text', text: /Caché [0-9]+ min/ }))?.text).toBe('Caché 5 min')
+  expect((await ui.find({ type: 'Text', text: /Caché [0-9]+ min/ }))?.text).toBe('Caché 60 min')
   await ui.unmount()
 })
 
@@ -251,21 +281,22 @@ test('the bar counts from the shared activity like the host: max(lastActivityAt,
   await ui.unmount()
 })
 
-test("with the session's state present, the bar's own turn end does not override it", async ($, on) => {
+test('a turn that just ended beats a lagging state.json (the cache was used right then)', async ($, on) => {
   const twentyAgo = Date.now() - 20 * 60_000
   engine(on, {
     pending: null,
     ran: [],
     shared: {
       hash: await projectHash('/'),
+      // no transcript to stat: only the stale stored time
       json: { sessionId: 's1', subscription: true, subscriptionFrom: 'login', lastActivityAt: new Date(twentyAgo).toISOString() },
     },
   })
-  // startWithUsage ends a main turn now: the old max(own, shared) would show 60
+  // startWithUsage ends a main turn now: reading the state alone would show 40
   await startWithUsage($)
 
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  expect((await ui.find({ type: 'Text', text: /Caché [0-9]+ min/ }))?.text).toBe('Caché 40 min')
+  expect((await ui.find({ type: 'Text', text: /Caché [0-9]+ min/ }))?.text).toBe('Caché 60 min')
   await ui.unmount()
 })
 
@@ -289,5 +320,21 @@ test('after /clear the old countdown is gone (no session.start fires for it)', a
 
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect(await ui.find({ type: 'Text', text: /Caché/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test("another project's fresh checkpoint never offers Limpiar y seguir here", async ($, on) => {
+  const state: Disk = { pending: null, ran: [], pendingDir: 'another-project' }
+  engine(on, state)
+  await startWithUsage($)
+
+  let ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await ui.press({ key: 'handoff' })
+  await ui.unmount()
+  state.pending = { consumed: false, checkpointFile: 'C:/home/other.md', mtimeMs: Date.now() + 5_000 }
+  await $.turn.complete({ answer: 'done', durationMs: 1, isAborted: false, turnId: 't2', reason: 'answer' })
+
+  ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await ui.find({ key: 'clear' })).toBeUndefined()
   await ui.unmount()
 })
