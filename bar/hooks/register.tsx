@@ -115,7 +115,7 @@ export const register: Register = on => {
   // Bumped whenever a conversation ends or starts: a tick still waiting on the
   // disk from the previous one must not write its numbers into the new one.
   let generation = 0
-  // the session the rate-limits note was last written for (./shared.ts)
+  // "folder:session" the rate-limits note was last written for (./shared.ts)
   let proofFor: string | undefined
 
   on('session.start', async ($, e, next) => {
@@ -203,16 +203,21 @@ export const register: Register = on => {
     }
     await update($, usage, () => fresh)
 
-    // once per session id: a /clear starts a new one, which gets its own note
-    if (fresh.subscription && proofFor !== (await $.session.id())) {
-      proofFor = (await recordRateLimitsProof($, root)) ?? proofFor
-    }
-
     // measure fires after every API response: read the shared answer only
     // while the bar has none yet (the tick and turn.complete keep it fresh)
     if ((await read($, shared)) === null) {
       const fromState = await readShared($, root)
       await update($, shared, () => fromState)
+    }
+
+    // Once per folder and session (a /clear or a cd gets its own note), and
+    // only while Guardian has no proof yet: its own status line records it.
+    if (fresh.subscription && (await read($, shared))?.from !== 'rate_limits') {
+      const sessionId = await $.session.id()
+
+      if (proofFor !== `${await currentFolder($)}:${sessionId}`) {
+        proofFor = (await recordRateLimitsProof($, root, sessionId)) ?? proofFor
+      }
     }
 
     return next(e)

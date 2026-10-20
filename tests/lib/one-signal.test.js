@@ -203,14 +203,37 @@ test('the bar\'s rate-limits note is folded into the proof list and removed (ano
   assert.deepStrictEqual(state.subscriptionSessions, ['s1']);
   assert.strictEqual(state.subscription, true);
   assert.strictEqual(state.subscriptionFrom, 'rate_limits');
-  assert.strictEqual(fs.existsSync(note), false);
+  assert.strictEqual(fs.existsSync(note), true); // the note is the durable proof
 
   const [s] = host.collectCacheSessions({ config: DEFAULTS, root: paths.continuityRoot(), oauthCredentialsPath: path.join(os.tmpdir(), 'none') });
   assert.strictEqual(s.ttlMinutes, 60);
 
-  // the next hook keeps the proof without the note
+  // a rewrite that lost the list (a concurrent hook, the 16-entry cap): the note puts it back
+  const lost = JSON.parse(fs.readFileSync(paths.statePath(cwd), 'utf8'));
+  fs.writeFileSync(paths.statePath(cwd), JSON.stringify({ ...lost, subscriptionSessions: [], subscription: false, subscriptionFrom: 'api-env' }));
   performCheck({ transcript_path: transcript, cwd, session_id: 's1' }, { config });
-  assert.strictEqual(JSON.parse(fs.readFileSync(paths.statePath(cwd), 'utf8')).subscriptionFrom, 'rate_limits');
+  const healed = JSON.parse(fs.readFileSync(paths.statePath(cwd), 'utf8'));
+  assert.strictEqual(healed.subscriptionFrom, 'rate_limits');
+  assert.deepStrictEqual(healed.subscriptionSessions, ['s1']);
+});
+
+test('only rate-limits notes older than a day are cleaned up', (t) => {
+  withoutApiEnv(t);
+  const { cwd, transcript } = sandbox(t);
+  const dir = paths.projectDir(cwd);
+  fs.mkdirSync(dir, { recursive: true });
+  const old = paths.rateLimitsProofPath(cwd, 'old-session');
+  const recent = paths.rateLimitsProofPath(cwd, 'recent-session');
+  const other = path.join(dir, 'checkpoint-2026-10-01.md');
+  for (const f of [old, recent, other]) fs.writeFileSync(f, '{}');
+  const twoDays = new Date(Date.now() - 48 * 60 * MIN);
+  fs.utimesSync(old, twoDays, twoDays);
+  fs.utimesSync(other, twoDays, twoDays);
+
+  performCheck({ transcript_path: transcript, cwd, session_id: 's1' }, { config });
+  assert.strictEqual(fs.existsSync(old), false);
+  assert.strictEqual(fs.existsSync(recent), true);
+  assert.strictEqual(fs.existsSync(other), true); // never touches anything else
 });
 
 test('the rate-limits note name only carries safe characters', () => {
