@@ -1,10 +1,18 @@
+import type { On } from 'claude-code'
 import { expect, test } from 'claude-code/testing'
+import type { Engine } from 'claude-code/testing'
+
+import { projectHash } from './shared'
 
 // The handoff cycle: Traspaso -> (checkpoint turn) -> Limpiar y seguir -> /clear.
 // The hooks registered with `on` stand for the engine and the disk beneath the
 // plugin; `pending` is what the continuity folder holds at each step.
 
-const BAND = { plugin: 'quota-guardian-bar', component: 'AbovePrompt', props: { hasSurvey: false } } as const
+const BAND = {
+  plugin: 'quota-guardian-bar',
+  component: 'AbovePrompt',
+  props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 100, scroll: { offset: 0, bodyRows: 6 }, view: {} },
+} as const
 const ROOT = 'C:/home/.claude/session-continuity'
 
 // The engine hands paths over in the platform's own form (backslashes on Windows).
@@ -12,11 +20,17 @@ const slashes = (p: string): string => p.split(String.fromCharCode(92)).join('/'
 
 type Pending = { consumed: boolean; checkpointFile: string | null; mtimeMs: number } | null
 
-function engine(on: Parameters<Parameters<typeof test>[1]>[1], state: { pending: Pending; ran: string[] }) {
+type Disk = { pending: Pending; ran: string[]; shared?: { hash: string; json: object } }
+
+function engine(on: On, state: Disk) {
   on('env.get', (_, e) => ({ value: e.name === 'USERPROFILE' ? 'C:/home' : undefined }))
   on('fs.read', (_, e) => {
     if (slashes(e.path) === `${ROOT}/pending-dir/pending.json` && state.pending !== null) {
       return { value: JSON.stringify({ consumed: state.pending.consumed, checkpointFile: state.pending.checkpointFile }) }
+    }
+
+    if (state.shared !== undefined && slashes(e.path) === `${ROOT}/${state.shared.hash}/state.json`) {
+      return { value: JSON.stringify(state.shared.json) }
     }
 
     // no config.json: the bar falls back to its defaults
@@ -44,6 +58,8 @@ function engine(on: Parameters<Parameters<typeof test>[1]>[1], state: { pending:
   })
   on('prompt.submit', () => ({ drop: 'test' }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.end', (_, e) => ({ sessionId: e.sessionId }))
+  on('session.id', () => ({ value: 's1' }))
   on('session.measure', (_, e) => ({ changed: e.changed }))
   on('turn.complete', (_, e) => ({ text: e.answer }))
   on('clock.now', () => ({ value: Date.now() }))
@@ -57,7 +73,7 @@ function engine(on: Parameters<Parameters<typeof test>[1]>[1], state: { pending:
   })
 }
 
-async function startWithUsage($: Parameters<Parameters<typeof test>[1]>[0]) {
+async function startWithUsage($: Engine) {
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
   await $.session.measure({
     context: { tokens: 150_000, window: 1_000_000, percent: 15 },
@@ -155,6 +171,52 @@ test('a new session forgets the old countdown and any handoff in flight', async 
 
   ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect(await ui.find({ key: 'clear' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /Caché/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test("the folder hash matches Guardian's lib/paths.js projectHash", async () => {
+  // reference values from lib/paths.js projectHash on Windows (absolute paths,
+  // which Claude Code always hands both the hooks and the bar)
+  const sep = String.fromCharCode(92)
+  expect(await projectHash(['C:', 'Users', 'Lonardo Antonilez', 'Documents'].join(sep))).toBe('ea61dc111ceb')
+  expect(await projectHash(['C:', 'Users', 'Lonardo Antonilez', 'Documents', 'claude-quota-guardian'].join(sep))).toBe(
+    'ba4f3a9c3c5f',
+  )
+})
+
+test("the session's shared answer wins: an API-key session shows 5 min even if the engine reports rate limits", async ($, on) => {
+  engine(on, {
+    pending: null,
+    ran: [],
+    shared: { hash: await projectHash('/'), json: { sessionId: 's1', subscription: false, lastActivityAt: new Date().toISOString() } },
+  })
+  await startWithUsage($)
+
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect((await ui.find({ type: 'Text', text: /Caché [0-9]+ min/ }))?.text).toBe('Caché 5 min')
+  await ui.unmount()
+})
+
+test("another session's state in the same folder is ignored", async ($, on) => {
+  engine(on, {
+    pending: null,
+    ran: [],
+    shared: { hash: await projectHash('/'), json: { sessionId: 'other', subscription: false, lastActivityAt: new Date().toISOString() } },
+  })
+  await startWithUsage($)
+
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect((await ui.find({ type: 'Text', text: /Caché [0-9]+ min/ }))?.text).toBe('Caché 60 min')
+  await ui.unmount()
+})
+
+test('after /clear the old countdown is gone (no session.start fires for it)', async ($, on) => {
+  engine(on, { pending: null, ran: [] })
+  await startWithUsage($)
+  await $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } })
+
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect(await ui.find({ type: 'Text', text: /Caché/ })).toBeUndefined()
   await ui.unmount()
 })

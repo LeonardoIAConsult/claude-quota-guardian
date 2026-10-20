@@ -32,7 +32,7 @@ function readJsonSafe(file) {
 // react to them on its own next run: the account window drives the block, the
 // per-model caps let the downgrade nudge use the real Opus/Sonnet quota instead
 // of a single global number.
-function cacheRateLimit(cwd, rateLimits) {
+function cacheRateLimit(cwd, rateLimits, sessionId) {
   if (!cwd || !rateLimits) return;
 
   const { top, byModel } = parseRateLimits(rateLimits);
@@ -44,10 +44,19 @@ function cacheRateLimit(cwd, rateLimits) {
     // The line re-renders every refreshInterval while the session is idle; a
     // write with nothing new would keep updatedAt fresh and the watcher would
     // never see this session go quiet (it ramps down on stale updatedAt).
+    // rate_limits only reach subscriptions: the strongest proof for this
+    // session, written once (lib/cache-clock.js detectSubscription keeps it).
+    const provenFor = sessionId || null;
     const unchanged = (!top || (prev.rateLimitPct === top.pct && prev.rateLimitResetAt === top.resetAt))
-      && (Object.keys(byModel).length === 0 || JSON.stringify(prev.rateLimitByModel) === JSON.stringify(byModel));
+      && (Object.keys(byModel).length === 0 || JSON.stringify(prev.rateLimitByModel) === JSON.stringify(byModel))
+      && (!provenFor || (prev.subscriptionFrom === 'rate_limits' && prev.subscriptionSessionId === provenFor));
     if (unchanged) return;
     const next = { ...prev, updatedAt: new Date().toISOString() };
+    if (provenFor) {
+      next.subscription = true;
+      next.subscriptionFrom = 'rate_limits';
+      next.subscriptionSessionId = provenFor;
+    }
     if (top) {
       next.rateLimitPct = top.pct;
       next.rateLimitResetAt = top.resetAt;
@@ -61,7 +70,7 @@ function cacheRateLimit(cwd, rateLimits) {
   }
 }
 
-function renderLine(input, cacheConfig) {
+function renderLine(input, cacheConfig, state) {
   const model = (input.model && (input.model.display_name || input.model.id)) || 'Claude';
   const rl = input.rate_limits || {};
   const fiveHour = rl.five_hour && typeof rl.five_hour.used_percentage === 'number'
@@ -71,17 +80,20 @@ function renderLine(input, cacheConfig) {
   const ctxPct = input.context_window && typeof input.context_window.used_percentage === 'number'
     ? `${Math.round(input.context_window.used_percentage)}%` : '--';
 
-  const cache = cacheSegment(input, cacheConfig);
+  const cache = cacheSegment(input, cacheConfig, state);
   return `${model} | ctx ${ctxPct} | 5h ${fiveHour} 7d ${sevenDay}${cache ? ` | ${cache}` : ''}`;
 }
 
 // Prompt-cache countdown (see lib/cache-clock.js). Omitted until the session
 // has a transcript, i.e. before the first message.
-function cacheSegment(input, cacheConfig, now = Date.now()) {
+// rate_limits in this payload proves a subscription; without them the line
+// uses the session's shared answer in state.json, like the host and the bar.
+function cacheSegment(input, cacheConfig, state, now = Date.now()) {
   if (!cacheConfig || cacheConfig.enabled === false) return null;
+  const subscription = Boolean(input.rate_limits) || Boolean(state && state.subscription === true);
   const status = cacheStatus({
     lastMs: lastActivityMs(input.transcript_path),
-    ttlMinutes: resolveTtlMinutes(cacheConfig, { hasRateLimits: Boolean(input.rate_limits) }),
+    ttlMinutes: resolveTtlMinutes(cacheConfig, { hasRateLimits: subscription }),
     warnMinutes: resolveWarnMinutes(cacheConfig),
     now,
   });
@@ -98,9 +110,10 @@ function main() {
   }
 
   const cwd = input.cwd || (input.workspace && input.workspace.current_dir) || null;
-  cacheRateLimit(cwd, input.rate_limits);
+  cacheRateLimit(cwd, input.rate_limits, input.session_id);
 
-  process.stdout.write(renderLine(input, loadConfig().cache));
+  const state = cwd ? readJsonSafe(paths.statePath(cwd)) : null;
+  process.stdout.write(renderLine(input, loadConfig().cache, state));
 }
 
 try {

@@ -2,21 +2,25 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { CacheConfig, Usage } from '../types'
+import { readShared } from './shared'
 
 // The bar above the prompt: prompt-cache countdown, context size, 5h / week,
 // and a one-click handoff through Guardian's /continuity-checkpoint. After the
 // checkpoint, "Limpiar y seguir" runs /clear; Guardian's SessionStart hook then
 // loads the checkpoint into the fresh session by itself.
 //
-// Same rule as lib/cache-clock.js (a hooks module cannot require Node code):
-// ttl = config cache.ttlMinutes, else 60 min on a subscription (the session
-// reports rate limits) and 5 min on an API key. Change both together.
+// The minutes come from the session's state.json (./shared.ts), the same
+// lastActivityAt and subscription the status line and the extension read; the
+// bar's own turn end and rate limits only fill in until Guardian's first hook
+// has written them. The ttl math mirrors lib/cache-clock.js (a hooks module
+// cannot require Node code): change both together.
 
 const SUBSCRIPTION_TTL_MINUTES = 60
 const API_TTL_MINUTES = 5
 const DEFAULTS: CacheConfig = { enabled: true, ttlMinutes: null, warnMinutes: 5 }
 
 const usage = atom({ plugin: 'quota-guardian-bar', key: 'usage' } as const, null)
+const shared = atom({ plugin: 'quota-guardian-bar', key: 'shared' } as const, null)
 const config = atom({ plugin: 'quota-guardian-bar', key: 'config' } as const, DEFAULTS)
 const lastTurn = atom({ plugin: 'quota-guardian-bar', key: 'lastTurn' } as const, 0)
 const now = atom({ plugin: 'quota-guardian-bar', key: 'now' } as const, 0)
@@ -38,6 +42,23 @@ function minutesLeft(last: number, ttl: number, at: number): number {
   const leftMs = last + ttl * 60_000 - at
 
   return leftMs <= 0 ? 0 : Math.min(ttl, Math.ceil(leftMs / 60_000))
+}
+
+// When the cache was last used: Guardian's lastActivityAt, or the end of the
+// bar's own last main turn when that is newer (the Stop hook that refreshes
+// state.json runs just after it). 0 = no activity in this conversation yet.
+function lastActivity(own: number, fromState: number | null | undefined): number {
+  return Math.max(own, fromState ?? 0)
+}
+
+// A new conversation (start, /clear, /resume) has no cache of its own yet and
+// no handoff in flight; the previous one's numbers would mislead.
+async function forgetConversation($: EngineInterface): Promise<void> {
+  await update($, lastTurn, () => 0)
+  await update($, usage, () => null)
+  await update($, shared, () => null)
+  await update($, ready, () => false)
+  await update($, waiting, () => false)
 }
 
 // Guardian's own config file, so the bar, the status line and the extension
@@ -96,19 +117,16 @@ export const register: Register = on => {
   let warned = false
   let ticking = false
   let root: string | undefined
+  let cwd: string | undefined
   let handoffAt = 0
 
   on('session.start', async ($, e, next) => {
     const t = await $.clock.now()
     await update($, now, () => t)
-    // A new conversation (start, /clear, /resume) has no cache of its own yet
-    // and no handoff in flight; the previous one's numbers would mislead.
     warned = false
     handoffAt = 0
-    await update($, lastTurn, () => 0)
-    await update($, usage, () => null)
-    await update($, ready, () => false)
-    await update($, waiting, () => false)
+    cwd = e.cwd
+    await forgetConversation($)
 
     const home = (await $.env.get('CQG_HOME')) ?? (await $.env.get('USERPROFILE')) ?? (await $.env.get('HOME'))
     root = home === undefined ? undefined : `${home}/.claude/session-continuity`
@@ -125,10 +143,14 @@ export const register: Register = on => {
     if (!ticking) {
       ticking = true
       $.clock.every(30_000, () => {
+        // A tick can outlive its session (it waits on the disk while the
+        // session ends): it must never leave a rejection behind.
         void (async () => {
           const at = await $.clock.now()
           await update($, now, () => at)
-          const last = await read($, lastTurn)
+          const fromState = await readShared($, root, cwd)
+          await update($, shared, () => fromState)
+          const last = lastActivity(await read($, lastTurn), fromState?.lastActivity)
           const cfg = await read($, config)
           const data = await read($, usage)
 
@@ -136,7 +158,7 @@ export const register: Register = on => {
             return
           }
 
-          const left = minutesLeft(last, ttlMinutes(cfg, data?.subscription ?? false), at)
+          const left = minutesLeft(last, ttlMinutes(cfg, fromState?.subscription ?? data?.subscription ?? false), at)
 
           if (left > 0 && left <= cfg.warnMinutes && !warned) {
             warned = true
@@ -144,8 +166,20 @@ export const register: Register = on => {
               timeoutMs: 15_000,
             })
           }
-        })()
+        })().catch(() => undefined)
       })
+    }
+
+    return next(e)
+  })
+
+  // /clear and /resume carry on in the same process under a new session id,
+  // and no session.start fires for them: this is where the old one ends.
+  on('session.end', async ($, e, next) => {
+    if (e.reason === 'clear' || e.reason === 'resume') {
+      warned = false
+      handoffAt = 0
+      await forgetConversation($)
     }
 
     return next(e)
@@ -173,6 +207,8 @@ export const register: Register = on => {
       warned = false
       await update($, lastTurn, () => t)
       await update($, now, () => t)
+      const fromState = await readShared($, root, cwd)
+      await update($, shared, () => fromState)
 
       // Any main turn can end while a handoff is pending (one already running
       // when Traspaso was pressed, say): only the one that left a checkpoint
@@ -188,8 +224,9 @@ export const register: Register = on => {
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const data = await read($, usage)
+    const fromState = await read($, shared)
     const cfg = await read($, config)
-    const last = await read($, lastTurn)
+    const last = lastActivity(await read($, lastTurn), fromState?.lastActivity)
     const at = await read($, now)
     const checkpointReady = await read($, ready)
     const below = await next(e)
@@ -199,7 +236,7 @@ export const register: Register = on => {
     }
 
     const { Box, Button, Text } = $.ui.resolve(e)
-    const ttl = ttlMinutes(cfg, data.subscription)
+    const ttl = ttlMinutes(cfg, fromState?.subscription ?? data.subscription)
     const left = last === 0 ? null : minutesLeft(last, ttl, at)
     const color = left === null ? 'green' : left === 0 ? 'red' : left <= cfg.warnMinutes ? 'yellow' : 'green'
     const parts = [

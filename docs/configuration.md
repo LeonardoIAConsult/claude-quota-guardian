@@ -75,7 +75,12 @@ To add another provider later: write an adapter that returns `{ projectPath, con
 | `cache.ttlMinutes` | `null` | `null` = estimate: 60 min when the session reports subscription `rate_limits` (Pro/Max), 5 min otherwise (API key, the API default). A number pins it. |
 | `cache.warnMinutes` | `5` | At or below this many minutes the countdown turns yellow (`cache 3m!`, orange row in the extension, toast in the bar). |
 
-The rule lives in `lib/cache-clock.js`; `bar/hooks/register.tsx` carries the same rule in TypeScript (a hooks module cannot `require` Node code), so change both together. Last activity is the transcript file's modification time; `lib/threshold-check.js` also stores it in `state.json` as `lastActivityAt`, with `projectName` and `transcriptPath`, for the native host.
+The rule lives in `lib/cache-clock.js`. Each session has **one** answer for the two inputs, written by the hooks into its `state.json` and read by all three surfaces, so they show the same minutes:
+
+- `lastActivityAt`: the transcript file's modification time (`lib/threshold-check.js`, on every tool call and turn end).
+- `subscription` (+ `subscriptionFrom`): `rate_limits` seen by the status line for this very session (only subscriptions get them) → `true`; otherwise `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` or a Bedrock/Vertex/Foundry switch in the environment → `false`; otherwise an OAuth login on disk → `true`.
+
+The bar (`bar/hooks/shared.ts`) finds its session's `state.json` by the project hash and checks its `sessionId`; until Guardian's first hook has written it (right after `/clear`, say) the bar uses its own turn end and the engine's rate limits. The minutes math in `bar/hooks/register.tsx` mirrors `lib/cache-clock.js` (a hooks module cannot `require` Node code): change both together.
 
 **It is an estimate.** Anthropic does not expose when a cache entry expires, and its lifetime is measured from the start of the request that last used it, while Guardian's clock starts when that request's answer was written. A long final answer therefore makes the clock run up to its length ahead of the real cache; the warning margin covers the usual case.
 

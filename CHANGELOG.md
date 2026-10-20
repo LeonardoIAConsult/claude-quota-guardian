@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.1.1 — 2026-10-19
+
+### Fixed
+- The status line, the bar and the extension now show the same cache minutes for the same
+  session: each session has one `lastActivityAt` and one `subscription` answer in its
+  `state.json`, and all three read them.
+- An API-key session on a machine that also has an OAuth login shows 5 min, not 60
+  (`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` or Bedrock/Vertex/Foundry switches mean per-token).
+- After `/clear` or `/resume` the bar forgets the previous conversation's countdown (no
+  `session.start` fires for them; the bar now listens to `session.end`).
+- A bar tick that outlives its session no longer leaves an unhandled rejection.
+- Installing the browser bridge no longer reports failure when only the cleanup of the old
+  folder fails, and never deletes the launcher it just wrote.
+
 ## 1.1.0 — 2026-10-19
 
 ### Added

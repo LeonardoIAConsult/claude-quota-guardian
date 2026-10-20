@@ -53,7 +53,7 @@ All three read one rule, `lib/cache-clock.js` (B carries a copy in TypeScript: h
 
 ## Backlog
 
-- One shared "last activity" and "subscription" signal for the three surfaces (today the bar uses
+- ~~One shared "last activity" and "subscription" signal for the three surfaces~~ done in 1.1.1 (order guardian-2026-10-19-001) (today the bar uses
   the end of the main turn, the status line and the host the transcript mtime); they can differ
   by the length of the last answer.
 - A repo moved after install leaves its old `bar/` path in `CLAUDE_CODE_PLUGIN_DIRS`; the
@@ -67,18 +67,18 @@ All three read one rule, `lib/cache-clock.js` (B carries a copy in TypeScript: h
   - `bin/uninstall.js` `run()` wiring of `uninstallBar` has no test (the function does).
   - `bar/tsconfig.json` extends the engine-written types, so `tsc -p bar` fails on a clean
     clone until the bar has loaded once.
-  - The host treats an OAuth login on disk as a subscription, so an API-key session on a
-    machine that also has an OAuth login shows 60 min.
+  - ~~The host treats an OAuth login on disk as a subscription, so an API-key session on a
+    machine that also has an OAuth login shows 60 min.~~ done in 1.1.1 (API env wins)
 
 - External review, round 2 (GO), not blocking:
   - The report test does not catch, on its own, a `hostDir()` moved back inside
     `session-continuity` (the legacy cleanup hides it; the `installNativeHost` test catches it).
-    Add `assert.ok(!host.hostDir().startsWith(paths.continuityRoot()))`.
+    Add `assert.ok(!host.hostDir().startsWith(paths.continuityRoot()))`. Done in 1.1.1.
   - `installNativeHost` would delete the launcher it just wrote if `hostDir()` ever equalled
-    `legacyHostDir()`; guard with `if (legacy !== hostDir())`.
-  - No test that the uninstaller removes the legacy folder.
-  - The legacy cleanup sits inside the `try`: a locked `.cmd` would report the host install
-    as failed although the registry is already right.
+    `legacyHostDir()`; guard with `if (legacy !== hostDir())`. Done in 1.1.1.
+  - ~~No test that the uninstaller removes the legacy folder.~~ done in 1.1.1
+  - ~~The legacy cleanup sits inside the `try`: a locked `.cmd` would report the host install
+    as failed although the registry is already right.~~ done in 1.1.1
 
 ## Fixed after external review (2026-10-19)
 
