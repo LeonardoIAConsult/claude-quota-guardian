@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.1.2 — 2026-10-19
+
+### Fixed
+- With another status line in the slot (no `rate_limits` reaching Guardian's), a Max session
+  with an exported-but-declined API key showed 60 min in the bar and 5 in the extension. The
+  bar now leaves a note when the engine reports rate limits (once per folder and session);
+  the hooks fold it into the session's proof on every hook, so the extension shows 60 too.
+  The note is the durable proof; notes older than a day are cleaned up.
+
+### Tests
+- The bar's shared answer follows the session's current folder; a fresh live usage reading
+  proves a login on its own.
+
 ## 1.1.1 — 2026-10-19
 
 ### Fixed

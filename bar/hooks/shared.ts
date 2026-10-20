@@ -96,6 +96,38 @@ export async function readShared($: EngineInterface, root: string | undefined): 
   }
 }
 
+// The engine reported rate limits for this session (only subscriptions get
+// them): leave Guardian a note, so the hooks record the proof in state.json
+// even when another status line owns the slot and the extension agrees with
+// the bar. A file of its own (lib/paths.js rateLimitsProofPath), never a
+// write into state.json, which the hooks rewrite whole. Returns the
+// "folder:session" key it wrote for (the caller writes once per key: a cd
+// mid-session lands in another folder, which needs its own note), or null.
+export async function recordRateLimitsProof(
+  $: EngineInterface,
+  root: string | undefined,
+  sessionId: string,
+): Promise<string | null> {
+  if (root === undefined || sessionId === '') {
+    return null
+  }
+
+  try {
+    const folder = await currentFolder($)
+    await $.fs.write(`${root}/${folder}/${proofNoteName(sessionId)}`, JSON.stringify({ sessionId }))
+
+    return `${folder}:${sessionId}`
+  } catch {
+    return null
+  }
+}
+
+// lib/paths.js rateLimitsProofPath spells the same name: change both together
+// (a test pins them to the same output).
+export function proofNoteName(sessionId: string): string {
+  return `rate-limits-${sessionId.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 100)}.json`
+}
+
 // lib/cache-clock.js sessionSubscription: rate limits proof first (the
 // engine's own reading, or one recorded for this session), then the
 // session's stored answer.

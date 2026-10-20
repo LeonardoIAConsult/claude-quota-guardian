@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { CacheConfig, Usage } from '../types'
-import { currentFolder, readShared, subscriptionOf } from './shared'
+import { currentFolder, readShared, recordRateLimitsProof, subscriptionOf } from './shared'
 
 // The bar above the prompt: prompt-cache countdown, context size, 5h / week,
 // and a one-click handoff through Guardian's /continuity-checkpoint. After the
@@ -115,6 +115,8 @@ export const register: Register = on => {
   // Bumped whenever a conversation ends or starts: a tick still waiting on the
   // disk from the previous one must not write its numbers into the new one.
   let generation = 0
+  // "folder:session" the rate-limits note was last written for (./shared.ts)
+  let proofFor: string | undefined
 
   on('session.start', async ($, e, next) => {
     const t = await $.clock.now()
@@ -206,6 +208,16 @@ export const register: Register = on => {
     if ((await read($, shared)) === null) {
       const fromState = await readShared($, root)
       await update($, shared, () => fromState)
+    }
+
+    // Once per folder and session (a /clear or a cd gets its own note), and
+    // only while Guardian has no proof yet: its own status line records it.
+    if (fresh.subscription && (await read($, shared))?.from !== 'rate_limits') {
+      const sessionId = await $.session.id()
+
+      if (proofFor !== `${await currentFolder($)}:${sessionId}`) {
+        proofFor = (await recordRateLimitsProof($, root, sessionId)) ?? proofFor
+      }
     }
 
     return next(e)

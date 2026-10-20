@@ -2,7 +2,7 @@ import type { On } from 'claude-code'
 import { expect, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 
-import { projectHash } from './shared'
+import { proofNoteName, projectHash } from './shared'
 
 // The handoff cycle: Traspaso -> (checkpoint turn) -> Limpiar y seguir -> /clear.
 // The hooks registered with `on` stand for the engine and the disk beneath the
@@ -29,6 +29,10 @@ type Disk = {
   pendingDir?: string
   // the session's cwd as $.session.cwd() reports it now (default '/')
   cwd?: string
+  // paths the bar wrote with $.fs.write
+  writes?: string[]
+  // what $.session.id() reports now (default 's1')
+  sessionId?: string
   shared?: { hash: string; json: object; transcriptMtime?: number }
 }
 
@@ -77,8 +81,13 @@ function engine(on: On, state: Disk) {
   on('prompt.submit', () => ({ drop: 'test' }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('session.end', (_, e) => ({ sessionId: e.sessionId }))
-  on('session.id', () => ({ value: 's1' }))
+  on('session.id', () => ({ value: state.sessionId ?? 's1' }))
   on('session.cwd', () => ({ value: state.cwd ?? '/' }))
+  on('fs.write', (_, e) => {
+    state.writes?.push(slashes(e.path))
+
+    return { value: undefined }
+  })
   on('fs.stat', (_, e) => {
     if (state.shared?.transcriptMtime !== undefined && slashes(e.path) === 'C:/home/t.jsonl') {
       return { value: { kind: 'file', size: 1, mtimeMs: state.shared.transcriptMtime, isLink: false } }
@@ -324,6 +333,95 @@ test("another session's state in the same folder is ignored", async ($, on) => {
 
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect(await ui.find({ type: 'Text', text: /Caché/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+const MEASURE_SUB = {
+  context: { tokens: 150_000, window: 1_000_000, percent: 15 },
+  rateLimits: [{ kind: 'five_hour', percentUsed: 41 }],
+  changed: [],
+}
+
+test("the engine's rate limits leave Guardian one note per session and folder", async ($, on) => {
+  const state: Disk = { pending: null, ran: [], writes: [] }
+  engine(on, state)
+  await startWithUsage($) // first measure: the note
+  await $.session.measure(MEASURE_SUB) // same session and folder: no second write
+  expect(state.writes).toEqual([`${ROOT}/${PROJECT}/rate-limits-s1.json`])
+
+  // a cd: the new folder gets its own note
+  state.cwd = '/moved'
+  await $.session.measure(MEASURE_SUB)
+  // a /clear: a new session id, its own note
+  await $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } })
+  state.sessionId = 's2'
+  await $.session.measure(MEASURE_SUB)
+
+  const moved = await projectHash('/moved')
+  expect(state.writes).toEqual([
+    `${ROOT}/${PROJECT}/rate-limits-s1.json`,
+    `${ROOT}/${moved}/rate-limits-s1.json`,
+    `${ROOT}/${moved}/rate-limits-s2.json`,
+  ])
+})
+
+test("no note when Guardian's status line already recorded the proof", async ($, on) => {
+  const state: Disk = {
+    pending: null,
+    ran: [],
+    writes: [],
+    shared: {
+      hash: PROJECT,
+      json: { sessionId: 's1', subscriptionSessions: ['s1'], subscription: true, lastActivityAt: new Date().toISOString() },
+    },
+  }
+  engine(on, state)
+  await startWithUsage($) // measure reads the shared answer first, then sees it proven
+  await $.session.measure(MEASURE_SUB)
+
+  expect(state.writes).toEqual([])
+})
+
+test('no note for an empty session id (the hooks would never read it)', async ($, on) => {
+  const state: Disk = { pending: null, ran: [], writes: [], sessionId: '' }
+  engine(on, state)
+  await startWithUsage($)
+
+  expect(state.writes).toEqual([])
+})
+
+test('the note name matches lib/paths.js rateLimitsProofPath for unsafe ids', () => {
+  // the same expectation tests/lib/one-signal.test.js holds for the Node side
+  const sep = String.fromCharCode(92)
+  expect(proofNoteName(['..', '..', 'evil'].join('/') + sep + 'id:1')).toBe('rate-limits-______evil_id_1.json')
+  expect(proofNoteName('x'.repeat(150))).toBe(`rate-limits-${'x'.repeat(100)}.json`)
+})
+
+test('no note without rate limits from the engine (API key)', async ($, on) => {
+  const state: Disk = { pending: null, ran: [], writes: [] }
+  engine(on, state)
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.session.measure({ context: { tokens: 20_000, window: 1_000_000, percent: 2 }, rateLimits: [], changed: [] })
+
+  expect(state.writes).toEqual([])
+})
+
+test("the shared answer follows the session's current folder too", async ($, on) => {
+  engine(on, {
+    pending: null,
+    ran: [],
+    cwd: '/moved',
+    shared: {
+      hash: await projectHash('/moved'),
+      json: { sessionId: 's1', subscription: true, subscriptionFrom: 'login', lastActivityAt: new Date(Date.now() - 20 * 60_000).toISOString() },
+    },
+  })
+  // started in '/', now in '/moved': no turn and no rate limits, so only that folder's state can draw
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.session.measure({ context: { tokens: 20_000, window: 1_000_000, percent: 2 }, rateLimits: [], changed: [] })
+
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect((await ui.find({ type: 'Text', text: /Caché [0-9]+ min/ }))?.text).toBe('Caché 40 min')
   await ui.unmount()
 })
 
