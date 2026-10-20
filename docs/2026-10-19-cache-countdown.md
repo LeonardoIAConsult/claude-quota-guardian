@@ -73,6 +73,18 @@ All three read one rule, `lib/cache-clock.js` (B carries a copy in TypeScript: h
     (cleanup between stat and rm while the bar rewrites a resumed session's note) can drop a fresh
     note. Both show 5 min early, never late, and only if the list also lost the session.
   - Not yet seen in a real session: `$.session.cwd()` changing after a `cd`. Still open. (Separately, 1.1.2 confirmed in a real `claude -p` session that the bar's folder hash matches the hooks' without a cd.)
+  - 1.1.3 review (GO), not blocking:
+    - `isHomeName` compares the stored folder name with the home folder's long and real names,
+      but a name stored in its 8.3 short form (`USERNA~1`) is not recognised: with no
+      transcript, that session would show the short name instead of "Inicio (~)".
+    - `lib/native-host.js:179`: the second term of `isHomeName`
+      (`path.basename(realPath(home))`) has no test; deleting it leaves the suite green.
+    - Case on macOS: `sameFolder`/`isHomeName` compare case-sensitively outside Windows, but
+      the default macOS volume is case-insensitive, so a home folder spelled with other case
+      would not be recognised there.
+    - The 8.3 test (`projectFromTranscript: the home folder given in a different spelling`)
+      depends on the environment: it only exercises the short-name path when `os.tmpdir()` is
+      itself an 8.3 path; elsewhere it passes without testing that branch.
 
 - ~~One shared "last activity" and "subscription" signal for the three surfaces~~ done in 1.1.1 (order guardian-2026-10-19-001) (today the bar uses
   the end of the main turn, the status line and the host the transcript mtime); they can differ
