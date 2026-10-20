@@ -251,6 +251,24 @@ test('the bar counts from the shared activity like the host: max(lastActivityAt,
   await ui.unmount()
 })
 
+test("with the session's state present, the bar's own turn end does not override it", async ($, on) => {
+  const twentyAgo = Date.now() - 20 * 60_000
+  engine(on, {
+    pending: null,
+    ran: [],
+    shared: {
+      hash: await projectHash('/'),
+      json: { sessionId: 's1', subscription: true, subscriptionFrom: 'login', lastActivityAt: new Date(twentyAgo).toISOString() },
+    },
+  })
+  // startWithUsage ends a main turn now: the old max(own, shared) would show 60
+  await startWithUsage($)
+
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect((await ui.find({ type: 'Text', text: /Caché [0-9]+ min/ }))?.text).toBe('Caché 40 min')
+  await ui.unmount()
+})
+
 test("another session's state in the same folder is ignored", async ($, on) => {
   engine(on, {
     pending: null,

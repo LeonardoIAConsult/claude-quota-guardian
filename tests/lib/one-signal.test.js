@@ -128,6 +128,19 @@ test('two sessions sharing a folder do not make the idle status line rewrite sta
   }
 });
 
+test('a proof for another session in the folder leaves the current session\'s answer alone', (t) => {
+  withoutApiEnv(t);
+  const { home, cwd, transcript } = sandbox(t);
+  fs.mkdirSync(path.dirname(paths.statePath(cwd)), { recursive: true });
+  fs.writeFileSync(paths.statePath(cwd), JSON.stringify({ sessionId: 'A', subscription: false, subscriptionFrom: 'api-env' }));
+  statusLine({ cwd, session_id: 'B', transcript_path: transcript, rate_limits: { five_hour: { used_percentage: 10, resets_at: 1738425600 } } }, home);
+
+  const state = JSON.parse(fs.readFileSync(paths.statePath(cwd), 'utf8'));
+  assert.deepStrictEqual(state.subscriptionSessions, ['B']);
+  assert.strictEqual(state.subscription, false); // A's own answer, untouched
+  assert.strictEqual(state.subscriptionFrom, 'api-env');
+});
+
 test('the proven-session list is capped', () => {
   let state = {};
   for (let i = 0; i < clock.MAX_PROVEN_SESSIONS + 5; i += 1) state = { subscriptionSessions: clock.withProvenSession(state, `s${i}`) };
