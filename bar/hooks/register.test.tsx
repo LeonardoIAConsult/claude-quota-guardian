@@ -20,7 +20,7 @@ const slashes = (p: string): string => p.split(String.fromCharCode(92)).join('/'
 
 type Pending = { consumed: boolean; checkpointFile: string | null; mtimeMs: number } | null
 
-type Disk = { pending: Pending; ran: string[]; shared?: { hash: string; json: object } }
+type Disk = { pending: Pending; ran: string[]; shared?: { hash: string; json: object; transcriptMtime?: number } }
 
 function engine(on: On, state: Disk) {
   on('env.get', (_, e) => ({ value: e.name === 'USERPROFILE' ? 'C:/home' : undefined }))
@@ -60,6 +60,13 @@ function engine(on: On, state: Disk) {
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('session.end', (_, e) => ({ sessionId: e.sessionId }))
   on('session.id', () => ({ value: 's1' }))
+  on('fs.stat', (_, e) => {
+    if (state.shared?.transcriptMtime !== undefined && slashes(e.path) === 'C:/home/t.jsonl') {
+      return { value: { kind: 'file', size: 1, mtimeMs: state.shared.transcriptMtime, isLink: false } }
+    }
+
+    throw new Error('ENOENT')
+  })
   on('session.measure', (_, e) => ({ changed: e.changed }))
   on('turn.complete', (_, e) => ({ text: e.answer }))
   on('clock.now', () => ({ value: Date.now() }))
@@ -189,12 +196,58 @@ test("the session's shared answer wins: an API-key session shows 5 min even if t
   engine(on, {
     pending: null,
     ran: [],
-    shared: { hash: await projectHash('/'), json: { sessionId: 's1', subscription: false, lastActivityAt: new Date().toISOString() } },
+    shared: {
+      hash: await projectHash('/'),
+      json: { sessionId: 's1', subscription: false, subscriptionFrom: 'api-env', lastActivityAt: new Date().toISOString() },
+    },
   })
   await startWithUsage($)
 
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect((await ui.find({ type: 'Text', text: /Caché [0-9]+ min/ }))?.text).toBe('Caché 5 min')
+  await ui.unmount()
+})
+
+test("a false that is not an API setting does not beat the engine's rate limits", async ($, on) => {
+  engine(on, {
+    pending: null,
+    ran: [],
+    shared: {
+      hash: await projectHash('/'),
+      json: { sessionId: 's1', subscription: false, subscriptionFrom: 'no-login', lastActivityAt: new Date().toISOString() },
+    },
+  })
+  await startWithUsage($)
+
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect((await ui.find({ type: 'Text', text: /Caché [0-9]+ min/ }))?.text).toBe('Caché 60 min')
+  await ui.unmount()
+})
+
+test('the bar counts from the shared activity like the host: max(lastActivityAt, transcript mtime)', async ($, on) => {
+  const twentyAgo = Date.now() - 20 * 60_000
+  engine(on, {
+    pending: null,
+    ran: [],
+    shared: {
+      hash: await projectHash('/'),
+      json: {
+        sessionId: 's1',
+        subscription: true,
+        subscriptionFrom: 'login',
+        lastActivityAt: new Date(twentyAgo - 5 * 60_000).toISOString(),
+        transcriptPath: 'C:/home/t.jsonl',
+      },
+      transcriptMtime: twentyAgo,
+    },
+  })
+  // no turn in this conversation yet: only the shared answer can give 40
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.session.measure({ context: { tokens: 20_000, window: 1_000_000, percent: 2 }, rateLimits: [], changed: [] })
+
+  // lib/cache-clock.js cacheStatus on the same inputs: ceil((twentyAgo + 60 min - now) / 1 min) = 40
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect((await ui.find({ type: 'Text', text: /Caché [0-9]+ min/ }))?.text).toBe('Caché 40 min')
   await ui.unmount()
 })
 

@@ -10,6 +10,7 @@ export type Usage = {
 export type Shared = {
   lastActivity: number | null
   subscription: boolean | null
+  from: string | null
 }
 
 export type CacheConfig = {

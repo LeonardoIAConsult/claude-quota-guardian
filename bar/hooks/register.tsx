@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { CacheConfig, Usage } from '../types'
-import { readShared } from './shared'
+import { readShared, subscriptionOf } from './shared'
 
 // The bar above the prompt: prompt-cache countdown, context size, 5h / week,
 // and a one-click handoff through Guardian's /continuity-checkpoint. After the
@@ -44,11 +44,12 @@ function minutesLeft(last: number, ttl: number, at: number): number {
   return leftMs <= 0 ? 0 : Math.min(ttl, Math.ceil(leftMs / 60_000))
 }
 
-// When the cache was last used: Guardian's lastActivityAt, or the end of the
-// bar's own last main turn when that is newer (the Stop hook that refreshes
-// state.json runs just after it). 0 = no activity in this conversation yet.
+// When the cache was last used: the session's shared answer (state.json plus
+// the transcript's mtime, as the status line and the host compute it); the
+// bar's own turn end only until Guardian has written this session's state.
+// 0 = no activity in this conversation yet.
 function lastActivity(own: number, fromState: number | null | undefined): number {
-  return Math.max(own, fromState ?? 0)
+  return fromState ?? own
 }
 
 // A new conversation (start, /clear, /resume) has no cache of its own yet and
@@ -158,7 +159,7 @@ export const register: Register = on => {
             return
           }
 
-          const left = minutesLeft(last, ttlMinutes(cfg, fromState?.subscription ?? data?.subscription ?? false), at)
+          const left = minutesLeft(last, ttlMinutes(cfg, subscriptionOf(fromState, data?.subscription ?? false)), at)
 
           if (left > 0 && left <= cfg.warnMinutes && !warned) {
             warned = true
@@ -197,6 +198,8 @@ export const register: Register = on => {
       subscription: e.rateLimits.length > 0,
     }
     await update($, usage, () => fresh)
+    const fromState = await readShared($, root, cwd)
+    await update($, shared, () => fromState)
 
     return next(e)
   })
@@ -236,7 +239,7 @@ export const register: Register = on => {
     }
 
     const { Box, Button, Text } = $.ui.resolve(e)
-    const ttl = ttlMinutes(cfg, fromState?.subscription ?? data.subscription)
+    const ttl = ttlMinutes(cfg, subscriptionOf(fromState, data.subscription))
     const left = last === 0 ? null : minutesLeft(last, ttl, at)
     const color = left === null ? 'green' : left === 0 ? 'red' : left <= cfg.warnMinutes ? 'yellow' : 'green'
     const parts = [

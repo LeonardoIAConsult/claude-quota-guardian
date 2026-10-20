@@ -6,7 +6,14 @@ const paths = require('../lib/paths');
 const { atomicWriteFileSync } = require('../lib/atomic-write');
 const { parseRateLimits } = require('../lib/rate-limits');
 const { loadConfig } = require('../lib/config');
-const { cacheStatus, lastActivityMs, resolveTtlMinutes, resolveWarnMinutes } = require('../lib/cache-clock');
+const {
+  cacheStatus,
+  lastActivityMs,
+  resolveTtlMinutes,
+  resolveWarnMinutes,
+  sessionLastActivity,
+  withProvenSession,
+} = require('../lib/cache-clock');
 
 function readStdin() {
   try {
@@ -44,18 +51,22 @@ function cacheRateLimit(cwd, rateLimits, sessionId) {
     // The line re-renders every refreshInterval while the session is idle; a
     // write with nothing new would keep updatedAt fresh and the watcher would
     // never see this session go quiet (it ramps down on stale updatedAt).
-    // rate_limits only reach subscriptions: the strongest proof for this
-    // session, written once (lib/cache-clock.js detectSubscription keeps it).
-    const provenFor = sessionId || null;
+    // rate_limits only reach subscriptions: the strongest proof, recorded once
+    // per session in a short list (lib/cache-clock.js), so sessions sharing
+    // the folder never undo each other's proof and the idle refresh stays quiet.
+    const proven = withProvenSession(prev, sessionId);
     const unchanged = (!top || (prev.rateLimitPct === top.pct && prev.rateLimitResetAt === top.resetAt))
       && (Object.keys(byModel).length === 0 || JSON.stringify(prev.rateLimitByModel) === JSON.stringify(byModel))
-      && (!provenFor || (prev.subscriptionFrom === 'rate_limits' && prev.subscriptionSessionId === provenFor));
+      && proven === null;
     if (unchanged) return;
     const next = { ...prev, updatedAt: new Date().toISOString() };
-    if (provenFor) {
-      next.subscription = true;
-      next.subscriptionFrom = 'rate_limits';
-      next.subscriptionSessionId = provenFor;
+    if (proven !== null) {
+      next.subscriptionSessions = proven;
+      // the folder's current session: the host reads `subscription` directly
+      if (prev.sessionId === sessionId) {
+        next.subscription = true;
+        next.subscriptionFrom = 'rate_limits';
+      }
     }
     if (top) {
       next.rateLimitPct = top.pct;
@@ -86,13 +97,16 @@ function renderLine(input, cacheConfig, state) {
 
 // Prompt-cache countdown (see lib/cache-clock.js). Omitted until the session
 // has a transcript, i.e. before the first message.
-// rate_limits in this payload proves a subscription; without them the line
-// uses the session's shared answer in state.json, like the host and the bar.
+// Same answers as the host and the bar: lib/cache-clock.js
+// sessionLastActivity, and rate_limits in this payload (the proof itself) or
+// the session's subscription in state.json. A state.json last written by
+// another session in this folder is not this session's answer.
 function cacheSegment(input, cacheConfig, state, now = Date.now()) {
   if (!cacheConfig || cacheConfig.enabled === false) return null;
-  const subscription = Boolean(input.rate_limits) || Boolean(state && state.subscription === true);
+  const own = state && input.session_id && state.sessionId === input.session_id ? state : null;
+  const subscription = Boolean(input.rate_limits) || Boolean(own && own.subscription === true);
   const status = cacheStatus({
-    lastMs: lastActivityMs(input.transcript_path),
+    lastMs: sessionLastActivity(own, lastActivityMs(input.transcript_path)),
     ttlMinutes: resolveTtlMinutes(cacheConfig, { hasRateLimits: subscription }),
     warnMinutes: resolveWarnMinutes(cacheConfig),
     now,

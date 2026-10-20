@@ -62,7 +62,7 @@ function statusLine(input, home, env = {}) {
 const config = { plan: 'none', thresholds: { context: 0.995, plan: 0.995 } };
 
 test('detectSubscription: rate_limits seen for this session wins, but only for that session', () => {
-  const prevState = { subscriptionFrom: 'rate_limits', subscriptionSessionId: 's1' };
+  const prevState = { subscriptionSessions: ['s0', 's1'] };
   assert.deepStrictEqual(clock.detectSubscription({ prevState, sessionId: 's1', env: { ANTHROPIC_API_KEY: 'x' } }), { subscription: true, from: 'rate_limits' });
   assert.deepStrictEqual(clock.detectSubscription({ prevState, sessionId: 's2', env: {}, oauthLogin: false }), { subscription: false, from: 'no-login' });
 });
@@ -106,11 +106,70 @@ test('the status line\'s rate_limits proof survives the next hook rewrite of sta
   const state = JSON.parse(fs.readFileSync(paths.statePath(cwd), 'utf8'));
   assert.strictEqual(state.subscription, true);
   assert.strictEqual(state.subscriptionFrom, 'rate_limits');
-  assert.strictEqual(state.subscriptionSessionId, 's1');
+  assert.deepStrictEqual(state.subscriptionSessions, ['s1']);
 
   // a new session in the same folder starts from scratch (no login here -> API ttl)
   performCheck({ transcript_path: transcript, cwd, session_id: 's2' }, { config });
   assert.strictEqual(JSON.parse(fs.readFileSync(paths.statePath(cwd), 'utf8')).subscription, false);
+});
+
+test('two sessions sharing a folder do not make the idle status line rewrite state.json', (t) => {
+  withoutApiEnv(t);
+  const { home, cwd, transcript } = sandbox(t);
+  const rl = { five_hour: { used_percentage: 10, resets_at: 1738425600 } };
+  for (const id of ['A', 'B']) statusLine({ cwd, session_id: id, transcript_path: transcript, rate_limits: rl }, home);
+
+  const file = paths.statePath(cwd);
+  const settled = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.deepStrictEqual(settled.subscriptionSessions, ['A', 'B']);
+  for (const id of ['B', 'A', 'B', 'A']) {
+    statusLine({ cwd, session_id: id, transcript_path: transcript, rate_limits: rl }, home);
+    assert.strictEqual(JSON.parse(fs.readFileSync(file, 'utf8')).updatedAt, settled.updatedAt, `refresh of ${id} rewrote state.json`);
+  }
+});
+
+test('the proven-session list is capped', () => {
+  let state = {};
+  for (let i = 0; i < clock.MAX_PROVEN_SESSIONS + 5; i += 1) state = { subscriptionSessions: clock.withProvenSession(state, `s${i}`) };
+  assert.strictEqual(state.subscriptionSessions.length, clock.MAX_PROVEN_SESSIONS);
+  assert.strictEqual(clock.withProvenSession(state, `s${clock.MAX_PROVEN_SESSIONS + 4}`), null);
+});
+
+test('macOS (OAuth token in the Keychain, no credentials file): a usage reading still means subscription', (t) => {
+  withoutApiEnv(t);
+  const { cwd, transcript } = sandbox(t);
+  assert.deepStrictEqual(clock.detectSubscription({ env: {}, oauthLogin: false, usageReading: true }), { subscription: true, from: 'login' });
+
+  // the hooks' cached usage reading (what lib/usage-api.js got with the Keychain token)
+  fs.mkdirSync(path.dirname(paths.statePath(cwd)), { recursive: true });
+  fs.writeFileSync(paths.statePath(cwd), JSON.stringify({ apiUsage: { pct: 12, fetchedAt: Date.now() } }));
+  performCheck({ transcript_path: transcript, cwd, session_id: 's1' }, { config });
+  const state = JSON.parse(fs.readFileSync(paths.statePath(cwd), 'utf8'));
+  assert.strictEqual(state.subscription, true);
+  const [s] = host.collectCacheSessions({ config: DEFAULTS, root: paths.continuityRoot(), oauthCredentialsPath: path.join(os.tmpdir(), 'none') });
+  assert.strictEqual(s.ttlMinutes, 60);
+});
+
+test('the host trusts the rate_limits proof over a stale false written before it', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-signal-host-'));
+  fs.mkdirSync(path.join(root, 'aaa'));
+  fs.writeFileSync(path.join(root, 'aaa', 'state.json'), JSON.stringify({
+    sessionId: 's1', subscription: false, subscriptionFrom: 'no-login', subscriptionSessions: ['s1'],
+    projectName: 'web', lastActivityAt: new Date(Date.now() - 10 * MIN).toISOString(),
+  }));
+  const [s] = host.collectCacheSessions({ config: DEFAULTS, root, oauthCredentialsPath: path.join(root, 'none') });
+  assert.strictEqual(s.ttlMinutes, 60);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('the status line ignores a state.json last written by another session in the folder', (t) => {
+  withoutApiEnv(t);
+  const { home, cwd, transcript } = sandbox(t);
+  fs.mkdirSync(path.dirname(paths.statePath(cwd)), { recursive: true });
+  fs.writeFileSync(paths.statePath(cwd), JSON.stringify({ sessionId: 'other', subscription: true, lastActivityAt: new Date().toISOString() }));
+  ageFile(transcript, 2);
+  const line = statusLine({ cwd, session_id: 'mine', transcript_path: transcript }, home);
+  assert.match(line, /cache 3m!$/); // API ttl from its own (absent) answer, minutes from its own transcript
 });
 
 test('status line and native host show the same minutes for the same session', (t) => {
