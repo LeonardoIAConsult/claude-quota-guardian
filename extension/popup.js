@@ -184,7 +184,7 @@ function renderCache(c) {
   if (!c.ok) {
     rows.innerHTML = `<div class="row-reset">${escapeHtml(CACHE_HINT[c.reason] || CACHE_HINT['host-error'])}</div>`;
   } else if (c.sessions.length === 0) {
-    rows.innerHTML = '<div class="row-reset">Sin sesiones de Claude Code en las últimas 24 h.</div>';
+    rows.innerHTML = '<div class="row-reset">Ninguna sesión de Claude Code tiene el caché vivo ahora.</div>';
   } else {
     rows.innerHTML = c.sessions.map(cacheRowHtml).join('');
   }

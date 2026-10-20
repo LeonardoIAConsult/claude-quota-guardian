@@ -16,6 +16,11 @@ function makeRoot() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-host-'));
 }
 
+// realpath: Windows hands out 8.3 short names (USERNA~1) that no folder listing shows.
+function makeRealRoot() {
+  return fs.realpathSync.native(makeRoot());
+}
+
 function writeState(root, name, state) {
   fs.mkdirSync(path.join(root, name), { recursive: true });
   fs.writeFileSync(path.join(root, name, 'state.json'), JSON.stringify(state));
@@ -144,12 +149,105 @@ test('collectCacheSessions: an OAuth login on disk means subscription even witho
 test('collectCacheSessions: caps the list and the project name length', () => {
   const root = makeRoot();
   for (let i = 0; i < 12; i += 1) {
-    writeState(root, `p${i}`, { projectName: 'x'.repeat(200), lastActivityAt: new Date(NOW - i * MIN).toISOString() });
+    writeState(root, `p${i}`, { projectName: 'x'.repeat(200), rateLimitPct: 1, lastActivityAt: new Date(NOW - i * MIN).toISOString() });
   }
   const sessions = host.collectCacheSessions({ config: DEFAULTS, now: NOW, root, oauthCredentialsPath: NO_CREDS });
   assert.strictEqual(sessions.length, host.MAX_SESSIONS);
   assert.strictEqual(sessions[0].project.length, 80);
   fs.rmSync(root, { recursive: true, force: true });
+});
+
+// A fake Claude home: <home>/projects/<encoded start folder>/<session>.jsonl, plus
+// the real folders the encoding points at (the host walks them to decode it).
+function makeProject(base, ...segments) {
+  const dir = path.join(base, ...segments);
+  fs.mkdirSync(dir, { recursive: true });
+  const encoded = path.resolve(base, ...segments).replace(/[^A-Za-z0-9]/g, '-');
+  const folder = path.join(base, '.claude-home', 'projects', encoded);
+  fs.mkdirSync(folder, { recursive: true });
+  return folder;
+}
+
+function makeTranscript(folder, name, ageMin) {
+  const file = path.join(folder, name);
+  fs.writeFileSync(file, '{}\n');
+  const t = new Date(NOW - ageMin * MIN);
+  fs.utimesSync(file, t, t);
+  return file;
+}
+
+test('collectCacheSessions: only live caches are listed, expired ones (closed sessions, routines) are left out', () => {
+  const root = makeRoot();
+  writeState(root, 'live', { projectName: 'web', lastActivityAt: new Date(NOW - 2 * MIN).toISOString() });
+  writeState(root, 'dead', { projectName: 'gone', lastActivityAt: new Date(NOW - 6 * MIN).toISOString() });
+  writeState(root, 'dead-sub', { projectName: 'gone-sub', rateLimitPct: 1, lastActivityAt: new Date(NOW - 61 * MIN).toISOString() });
+
+  const sessions = host.collectCacheSessions({ config: DEFAULTS, now: NOW, root, oauthCredentialsPath: NO_CREDS });
+  assert.deepStrictEqual(sessions.map((s) => s.project), ['web']);
+  assert.ok(sessions.every((s) => !s.expired && s.minutesLeft > 0));
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('collectCacheSessions: the name is the project the session started in, not the folder of its last cd', () => {
+  const root = makeRoot();
+  const base = makeRealRoot();
+  const mine = makeProject(base, 'Docs', 'my-web_app');
+  fs.mkdirSync(path.join(base, 'Docs', 'my-web_app', 'lib'));
+  const other = makeProject(base, 'Docs', 'other app');
+  const tA = makeTranscript(mine, 'a.jsonl', 1);
+  const tB = makeTranscript(other, 'b.jsonl', 2);
+  // one session (tA) visited three folders; each left its own state.json
+  writeState(root, 'h1', { projectName: 'my-web_app', transcriptPath: tA, sessionId: 'a', updatedAt: new Date(NOW - 9 * MIN).toISOString() });
+  writeState(root, 'h2', { projectName: 'lib', transcriptPath: tA, sessionId: 'a', updatedAt: new Date(NOW - 3 * MIN).toISOString() });
+  writeState(root, 'h3', { projectName: 'src', transcriptPath: tA, sessionId: 'a', updatedAt: new Date(NOW - 1 * MIN).toISOString() });
+  writeState(root, 'h4', { projectName: 'sub', transcriptPath: tB, sessionId: 'b', updatedAt: new Date(NOW - 2 * MIN).toISOString() });
+
+  const sessions = host.collectCacheSessions({ config: DEFAULTS, now: NOW, root, oauthCredentialsPath: NO_CREDS });
+  assert.deepStrictEqual(sessions.map((s) => s.project), ['my-web_app', 'other app']);
+  fs.rmSync(root, { recursive: true, force: true });
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+test('collectCacheSessions: without a decodable transcript folder it falls back to the stored name', () => {
+  const root = makeRoot();
+  const base = makeRealRoot();
+  const folder = path.join(base, 'projects', 'C--Does-Not-Exist-Anymore');
+  fs.mkdirSync(folder, { recursive: true });
+  const gone = makeTranscript(folder, 'g.jsonl', 1);
+  writeState(root, 'g', { projectName: 'stored-name', transcriptPath: gone, sessionId: 'g', updatedAt: new Date(NOW).toISOString() });
+  writeState(root, 'n', { projectName: 'no-transcript', lastActivityAt: new Date(NOW - 1 * MIN).toISOString() });
+
+  const sessions = host.collectCacheSessions({ config: DEFAULTS, now: NOW, root, oauthCredentialsPath: NO_CREDS });
+  assert.deepStrictEqual(sessions.map((s) => s.project).sort(), ['no-transcript', 'stored-name']);
+  fs.rmSync(root, { recursive: true, force: true });
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+test('collectCacheSessions: a session that started in the home folder or a drive root keeps the stored folder name', () => {
+  const root = makeRoot();
+  const base = makeRealRoot();
+  const home = path.join(base, 'Users', 'someone');
+  fs.mkdirSync(home, { recursive: true });
+  const homeFolder = path.join(base, '.claude-home', 'projects', home.replace(/[^A-Za-z0-9]/g, '-'));
+  fs.mkdirSync(homeFolder, { recursive: true });
+  // "C--" on Windows, "-" elsewhere: the transcript folder of a session started at the root
+  const rootFolder = path.join(base, '.claude-home', 'projects', path.parse(home).root.replace(/[^A-Za-z0-9]/g, '-'));
+  fs.mkdirSync(rootFolder, { recursive: true });
+  const tHome = makeTranscript(homeFolder, 'h.jsonl', 1);
+  const tRoot = makeTranscript(rootFolder, 'r.jsonl', 2);
+  writeState(root, 'h', { projectName: 'last-cd-folder', transcriptPath: tHome, sessionId: 'h', updatedAt: new Date(NOW).toISOString() });
+  writeState(root, 'r', { projectName: 'root-cd-folder', transcriptPath: tRoot, sessionId: 'r', updatedAt: new Date(NOW).toISOString() });
+
+  const saved = process.env.CQG_HOME;
+  process.env.CQG_HOME = home;
+  try {
+    const sessions = host.collectCacheSessions({ config: DEFAULTS, now: NOW, root, oauthCredentialsPath: NO_CREDS });
+    assert.deepStrictEqual(sessions.map((s) => s.project), ['last-cd-folder', 'root-cd-folder']);
+  } finally {
+    if (saved === undefined) delete process.env.CQG_HOME; else process.env.CQG_HOME = saved;
+  }
+  fs.rmSync(root, { recursive: true, force: true });
+  fs.rmSync(base, { recursive: true, force: true });
 });
 
 test('collectCacheSessions: missing root is an empty list', () => {
