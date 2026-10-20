@@ -66,6 +66,10 @@ All three read one rule, `lib/cache-clock.js` (B carries a copy in TypeScript: h
   - 17+ sessions rotating in one folder evict each other from the proof list on every refresh.
   - The bar takes max(own turn, shared); status line and host do not: under a minute apart at
     the rounding edge.
+  - External review round 2 (GO): no test pins `readShared` following the current cwd (only the
+    checkpoint path is pinned), and none pins the live-reading branch of `usageReading`
+    (breaking it shows 5 min early on a Keychain login, never late).
+  - Not yet seen in a real session: `$.session.cwd()` changing after a `cd`.
 
 - ~~One shared "last activity" and "subscription" signal for the three surfaces~~ done in 1.1.1 (order guardian-2026-10-19-001) (today the bar uses
   the end of the main turn, the status line and the host the transcript mtime); they can differ
