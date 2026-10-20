@@ -23,7 +23,14 @@ type Pending = { consumed: boolean; checkpointFile: string | null; mtimeMs: numb
 // this project's folder, the only one the bar looks in (cwd '/' in these tests)
 const PROJECT = await projectHash('/')
 
-type Disk = { pending: Pending; ran: string[]; pendingDir?: string; shared?: { hash: string; json: object; transcriptMtime?: number } }
+type Disk = {
+  pending: Pending
+  ran: string[]
+  pendingDir?: string
+  // the session's cwd as $.session.cwd() reports it now (default '/')
+  cwd?: string
+  shared?: { hash: string; json: object; transcriptMtime?: number }
+}
 
 function engine(on: On, state: Disk) {
   on('env.get', (_, e) => ({ value: e.name === 'USERPROFILE' ? 'C:/home' : undefined }))
@@ -71,6 +78,7 @@ function engine(on: On, state: Disk) {
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('session.end', (_, e) => ({ sessionId: e.sessionId }))
   on('session.id', () => ({ value: 's1' }))
+  on('session.cwd', () => ({ value: state.cwd ?? '/' }))
   on('fs.stat', (_, e) => {
     if (state.shared?.transcriptMtime !== undefined && slashes(e.path) === 'C:/home/t.jsonl') {
       return { value: { kind: 'file', size: 1, mtimeMs: state.shared.transcriptMtime, isLink: false } }
@@ -304,12 +312,37 @@ test("another session's state in the same folder is ignored", async ($, on) => {
   engine(on, {
     pending: null,
     ran: [],
-    shared: { hash: await projectHash('/'), json: { sessionId: 'other', subscription: false, lastActivityAt: new Date().toISOString() } },
+    // were it read, this would show "Caché 40 min"
+    shared: {
+      hash: await projectHash('/'),
+      json: { sessionId: 'other', subscription: true, subscriptionFrom: 'login', lastActivityAt: new Date(Date.now() - 20 * 60_000).toISOString() },
+    },
   })
-  await startWithUsage($)
+  // no turn and no rate limits of its own: only a shared answer could draw a countdown
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.session.measure({ context: { tokens: 20_000, window: 1_000_000, percent: 2 }, rateLimits: [], changed: [] })
 
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  expect((await ui.find({ type: 'Text', text: /Caché [0-9]+ min/ }))?.text).toBe('Caché 60 min')
+  expect(await ui.find({ type: 'Text', text: /Caché/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('a session that moved to another folder finds its checkpoint where /continuity-checkpoint wrote it', async ($, on) => {
+  const state: Disk = { pending: null, ran: [], pendingDir: await projectHash('/moved'), cwd: '/' }
+  engine(on, state)
+  await startWithUsage($)
+
+  let ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await ui.press({ key: 'handoff' })
+  await ui.unmount()
+
+  // the checkpoint turn ran after a cd: the command wrote under the new cwd
+  state.cwd = '/moved'
+  state.pending = { consumed: false, checkpointFile: 'C:/home/moved.md', mtimeMs: Date.now() + 5_000 }
+  await $.turn.complete({ answer: 'saved', durationMs: 1, isAborted: false, turnId: 't2', reason: 'answer' })
+
+  ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await ui.find({ key: 'clear' })).toBeDefined()
   await ui.unmount()
 })
 

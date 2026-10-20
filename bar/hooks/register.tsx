@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { CacheConfig, Usage } from '../types'
-import { projectHash, readShared, subscriptionOf } from './shared'
+import { currentFolder, readShared, subscriptionOf } from './shared'
 
 // The bar above the prompt: prompt-cache countdown, context size, 5h / week,
 // and a one-click handoff through Guardian's /continuity-checkpoint. After the
@@ -84,17 +84,14 @@ function parseConfig(text: string): CacheConfig {
 // written since the handoff started (`since`), not consumed yet, naming its
 // checkpoint file. /clear is offered (and run) only when it exists, so the
 // button can never wipe a conversation that has nothing to come back to.
-async function freshCheckpoint(
-  $: EngineInterface,
-  root: string | undefined,
-  folder: string | undefined,
-  since: number,
-): Promise<boolean> {
-  if (root === undefined || folder === undefined || since === 0) {
+async function freshCheckpoint($: EngineInterface, root: string | undefined, since: number): Promise<boolean> {
+  if (root === undefined || since === 0) {
     return false
   }
 
   try {
+    // the folder of the cwd now: /continuity-checkpoint writes under process.cwd()
+    const folder = await currentFolder($)
     const pending = (await $.fs.list(`${root}/${folder}`)).find(f => f.name === 'pending.json')
 
     // 2 s of slack between the engine clock and the file system's mtime
@@ -114,7 +111,6 @@ export const register: Register = on => {
   let warned = false
   let ticking = false
   let root: string | undefined
-  let folder: string | undefined
   let handoffAt = 0
   // Bumped whenever a conversation ends or starts: a tick still waiting on the
   // disk from the previous one must not write its numbers into the new one.
@@ -126,7 +122,6 @@ export const register: Register = on => {
     warned = false
     handoffAt = 0
     generation += 1
-    folder = await projectHash(e.cwd)
     await forgetConversation($)
 
     const home = (await $.env.get('CQG_HOME')) ?? (await $.env.get('USERPROFILE')) ?? (await $.env.get('HOME'))
@@ -149,7 +144,7 @@ export const register: Register = on => {
         void (async () => {
           const started = generation
           const at = await $.clock.now()
-          const fromState = await readShared($, root, folder)
+          const fromState = await readShared($, root)
 
           if (started !== generation) {
             return
@@ -209,7 +204,7 @@ export const register: Register = on => {
     // measure fires after every API response: read the shared answer only
     // while the bar has none yet (the tick and turn.complete keep it fresh)
     if ((await read($, shared)) === null) {
-      const fromState = await readShared($, root, folder)
+      const fromState = await readShared($, root)
       await update($, shared, () => fromState)
     }
 
@@ -222,13 +217,13 @@ export const register: Register = on => {
       warned = false
       await update($, lastTurn, () => t)
       await update($, now, () => t)
-      const fromState = await readShared($, root, folder)
+      const fromState = await readShared($, root)
       await update($, shared, () => fromState)
 
       // Any main turn can end while a handoff is pending (one already running
       // when Traspaso was pressed, say): only the one that left a checkpoint
       // turns the button into "Limpiar y seguir".
-      if ((await read($, waiting)) && (await freshCheckpoint($, root, folder, handoffAt))) {
+      if ((await read($, waiting)) && (await freshCheckpoint($, root, handoffAt))) {
         await update($, waiting, () => false)
         await update($, ready, () => true)
       }
@@ -283,7 +278,7 @@ export const register: Register = on => {
             onPress={async () => {
               await update($, ready, () => false)
 
-              if (!(await freshCheckpoint($, root, folder, handoffAt))) {
+              if (!(await freshCheckpoint($, root, handoffAt))) {
                 handoffAt = 0
                 $.ui.toast('No encontré un checkpoint pendiente de cargar, así que no limpié la sesión. Pulsa Traspaso otra vez.')
 

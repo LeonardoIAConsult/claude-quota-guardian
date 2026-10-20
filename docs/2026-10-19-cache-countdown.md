@@ -53,6 +53,20 @@ All three read one rule, `lib/cache-clock.js` (B carries a copy in TypeScript: h
 
 ## Backlog
 
+- 1.1.1 review (Verify, code review, Sentinel, external review), not blocking:
+  - Without Guardian's status line nobody records the rate_limits proof: a Max session with an
+    exported-but-declined `ANTHROPIC_API_KEY` shows 60 in the bar (engine rate limits) and 5 in
+    the extension (stored `api-env`). Early, never late. Fix: let the bar record the proof.
+  - No test pins the bar's `generation` guard (tick vs `/clear`), the legacy cleanup outside
+    the `try`, or the `samePath(legacy, hostDir())` guard in `installNativeHost`.
+  - `performCheck` rewrites the whole `state.json` and drops the status line's
+    `rateLimitByModel` until its next refresh (since adbf6cd; `subscriptionSessions` survives),
+    and a status-line write during a slow `performCheck` is lost until the next refresh.
+  - `apiKeyHelper` in settings is not detected as per-token (no env var to see).
+  - 17+ sessions rotating in one folder evict each other from the proof list on every refresh.
+  - The bar takes max(own turn, shared); status line and host do not: under a minute apart at
+    the rounding edge.
+
 - ~~One shared "last activity" and "subscription" signal for the three surfaces~~ done in 1.1.1 (order guardian-2026-10-19-001) (today the bar uses
   the end of the main turn, the status line and the host the transcript mtime); they can differ
   by the length of the last answer.

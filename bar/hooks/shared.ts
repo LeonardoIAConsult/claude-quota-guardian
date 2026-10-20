@@ -36,15 +36,34 @@ export async function projectHash(cwd: string): Promise<string> {
     .slice(0, 12)
 }
 
+const hashes = new Map<string, string>()
+
+// Guardian's folder for the session's working directory as it is NOW: the
+// hooks and /continuity-checkpoint write under the current cwd, which can move
+// during a session. The hash is computed once per directory.
+export async function currentFolder($: EngineInterface): Promise<string> {
+  const cwd = await $.session.cwd()
+  const known = hashes.get(cwd)
+
+  if (known !== undefined) {
+    return known
+  }
+
+  const hash = await projectHash(cwd)
+  hashes.set(cwd, hash)
+
+  return hash
+}
+
 // Null when Guardian has not written this session's state yet (before its
 // first hook, right after /clear) or the folder holds another session's.
-// `folder` is the project's hash, computed once per working directory.
-export async function readShared($: EngineInterface, root: string | undefined, folder: string | undefined): Promise<Shared | null> {
-  if (root === undefined || folder === undefined) {
+export async function readShared($: EngineInterface, root: string | undefined): Promise<Shared | null> {
+  if (root === undefined) {
     return null
   }
 
   try {
+    const folder = await currentFolder($)
     const sessionId = await $.session.id()
     const state = JSON.parse(await $.fs.read(`${root}/${folder}/state.json`))
 

@@ -77,7 +77,7 @@ test('detectSubscription: an API setting beats an OAuth login on the same machin
 
 test('performCheck writes the session\'s subscription answer into state.json', (t) => {
   withoutApiEnv(t);
-  const { home, cwd, transcript } = sandbox(t);
+  const { cwd, transcript } = sandbox(t);
   performCheck({ transcript_path: transcript, cwd, session_id: 's1' }, { config });
   let state = JSON.parse(fs.readFileSync(paths.statePath(cwd), 'utf8'));
   assert.strictEqual(state.subscription, false);
@@ -94,7 +94,6 @@ test('performCheck writes the session\'s subscription answer into state.json', (
   state = JSON.parse(fs.readFileSync(paths.statePath(cwd), 'utf8'));
   assert.strictEqual(state.subscription, false);
   assert.strictEqual(state.subscriptionFrom, 'api-env');
-  assert.ok(!fs.existsSync(home + '-never'));
 });
 
 test('the status line\'s rate_limits proof survives the next hook rewrite of state.json', (t) => {
@@ -155,6 +154,23 @@ test('a usage reading only proves a login while it is recent', () => {
   assert.strictEqual(clock.freshUsageReading({ fetchedAt: new Date(now + 5 * MIN).toISOString() }, now), false);
   assert.strictEqual(clock.freshUsageReading({ pct: 1 }, now), false);
   assert.strictEqual(clock.freshUsageReading(null, now), false);
+});
+
+test('with the default config, a 3 h old usage reading no longer proves a login (logged out / moved to an API key)', (t) => {
+  withoutApiEnv(t);
+  const { cwd, transcript } = sandbox(t); // sandbox home: no credentials, so nothing is fetched
+  fs.mkdirSync(path.dirname(paths.statePath(cwd)), { recursive: true });
+  fs.writeFileSync(paths.statePath(cwd), JSON.stringify({
+    sessionId: 's1',
+    apiUsage: { pct: 12, resetAt: new Date(Date.now() + 2 * 60 * MIN).toISOString(), fetchedAt: new Date(Date.now() - 3 * 60 * MIN).toISOString() },
+  }));
+
+  performCheck({ transcript_path: transcript, cwd, session_id: 's1' }, { config: { ...DEFAULTS, plan: 'none' } });
+  const state = JSON.parse(fs.readFileSync(paths.statePath(cwd), 'utf8'));
+  assert.strictEqual(state.subscriptionFrom, 'no-login');
+  assert.strictEqual(state.subscription, false);
+  const [s] = host.collectCacheSessions({ config: DEFAULTS, root: paths.continuityRoot(), oauthCredentialsPath: paths.oauthCredentialsPath() });
+  assert.strictEqual(s.ttlMinutes, 5);
 });
 
 test('performCheck does not inherit another session\'s lastActivityAt when the transcript is not there yet', (t) => {
@@ -257,7 +273,7 @@ test('an API-key session on a machine with an OAuth login shows 5 min in the hos
 });
 
 test('the native host lives outside session-continuity, and the uninstaller removes the old folder too', (t) => {
-  const { home } = sandbox(t);
+  sandbox(t);
   assert.ok(!path.resolve(host.hostDir()).startsWith(path.resolve(paths.continuityRoot()) + path.sep));
 
   const legacy = host.legacyHostDir();
@@ -265,5 +281,4 @@ test('the native host lives outside session-continuity, and the uninstaller remo
   fs.writeFileSync(path.join(legacy, 'guardian-host.cmd'), 'old');
   require('../../bin/uninstall').uninstallNativeHost({ platform: 'linux', execFn: () => {} });
   assert.strictEqual(fs.existsSync(legacy), false);
-  assert.ok(home);
 });

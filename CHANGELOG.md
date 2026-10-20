@@ -17,8 +17,9 @@
   in flight across `/clear` no longer writes the old conversation's numbers into the new one.
 - One precedence for the subscription answer in all three surfaces: rate limits (now, or
   recorded for the session) before the stored answer; `0`/`false`/`off` API switches count as
-  off; a usage reading proves a login only while it is under an hour old.
-- "Limpiar y seguir" only accepts the current project's checkpoint.
+  off; a usage reading (live or cached) proves a login only while it is under an hour old.
+- "Limpiar y seguir" only accepts the checkpoint of the folder the session is in now
+  (where /continuity-checkpoint writes it, also after a cd).
 - Installing the browser bridge no longer reports failure when only the cleanup of the old
   folder fails, and never deletes the launcher it just wrote.
 
