@@ -189,7 +189,7 @@ test('a fresh live usage reading (shared account cache) proves a login with noth
   assert.strictEqual(state.subscription, true);
 });
 
-test('the bar\'s rate-limits note is folded into the proof list and removed (another status line owns the slot)', (t) => {
+test('the bar\'s rate-limits note is folded into the proof list and kept as the durable proof (another status line owns the slot)', (t) => {
   withoutApiEnv(t);
   const { cwd, transcript } = sandbox(t);
   // a Max session with an exported but declined key: the env says API, the engine said rate limits
@@ -239,6 +239,8 @@ test('only rate-limits notes older than a day are cleaned up', (t) => {
 test('the rate-limits note name only carries safe characters', () => {
   const p = paths.rateLimitsProofPath('/repo', '../../evil\\id:1');
   assert.strictEqual(path.basename(p), 'rate-limits-______evil_id_1.json');
+  // the same cap as bar/hooks/shared.ts proofNoteName (register.test.tsx pins the bar side)
+  assert.strictEqual(path.basename(paths.rateLimitsProofPath('/r', 'x'.repeat(150))), `rate-limits-${'x'.repeat(100)}.json`);
   assert.strictEqual(path.dirname(p), paths.projectDir('/repo'));
 });
 

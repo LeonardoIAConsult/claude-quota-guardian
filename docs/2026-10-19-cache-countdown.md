@@ -69,7 +69,10 @@ All three read one rule, `lib/cache-clock.js` (B carries a copy in TypeScript: h
   - ~~External review round 2 (GO): no test pins `readShared` following the current cwd (only the
     checkpoint path is pinned), and none pins the live-reading branch of `usageReading`
     (breaking it shows 5 min early on a Keychain login, never late).~~ both pinned in 1.1.2
-  - Not yet seen in a real session: `$.session.cwd()` changing after a `cd`. (1.1.2: the bar's folder hash matched the hooks' in a real `claude -p` session.)
+  - 1.1.2 review (GO): a session alive over 24 h loses its note to the cleanup; a millisecond race
+    (cleanup between stat and rm while the bar rewrites a resumed session's note) can drop a fresh
+    note. Both show 5 min early, never late, and only if the list also lost the session.
+  - Not yet seen in a real session: `$.session.cwd()` changing after a `cd`. Still open. (Separately, 1.1.2 confirmed in a real `claude -p` session that the bar's folder hash matches the hooks' without a cd.)
 
 - ~~One shared "last activity" and "subscription" signal for the three surfaces~~ done in 1.1.1 (order guardian-2026-10-19-001) (today the bar uses
   the end of the main turn, the status line and the host the transcript mtime); they can differ
