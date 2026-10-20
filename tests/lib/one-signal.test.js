@@ -173,6 +173,52 @@ test('with the default config, a 3 h old usage reading no longer proves a login 
   assert.strictEqual(s.ttlMinutes, 5);
 });
 
+test('a fresh live usage reading (shared account cache) proves a login with nothing cached in state.json', (t) => {
+  withoutApiEnv(t);
+  const { cwd, transcript } = sandbox(t);
+  // the account-wide cache getStatus reads first; under 60 s old it is served as-is, no request
+  const fresh = new Date(Date.now() - 20 * 1000).toISOString();
+  fs.mkdirSync(path.dirname(paths.apiUsageCachePath()), { recursive: true });
+  fs.writeFileSync(paths.apiUsageCachePath(), JSON.stringify({
+    reading: { available: true, pct: 12, resetAt: new Date(Date.now() + 60 * MIN).toISOString(), fetchedAt: fresh },
+  }));
+
+  performCheck({ transcript_path: transcript, cwd, session_id: 's1' }, { config: { ...DEFAULTS, plan: 'none' } });
+  const state = JSON.parse(fs.readFileSync(paths.statePath(cwd), 'utf8'));
+  assert.strictEqual(state.subscriptionFrom, 'login');
+  assert.strictEqual(state.subscription, true);
+});
+
+test('the bar\'s rate-limits note is folded into the proof list and removed (another status line owns the slot)', (t) => {
+  withoutApiEnv(t);
+  const { cwd, transcript } = sandbox(t);
+  // a Max session with an exported but declined key: the env says API, the engine said rate limits
+  process.env.ANTHROPIC_API_KEY = 'sk-declined';
+  const note = paths.rateLimitsProofPath(cwd, 's1');
+  fs.mkdirSync(path.dirname(note), { recursive: true });
+  fs.writeFileSync(note, JSON.stringify({ sessionId: 's1' }));
+
+  performCheck({ transcript_path: transcript, cwd, session_id: 's1' }, { config });
+  const state = JSON.parse(fs.readFileSync(paths.statePath(cwd), 'utf8'));
+  assert.deepStrictEqual(state.subscriptionSessions, ['s1']);
+  assert.strictEqual(state.subscription, true);
+  assert.strictEqual(state.subscriptionFrom, 'rate_limits');
+  assert.strictEqual(fs.existsSync(note), false);
+
+  const [s] = host.collectCacheSessions({ config: DEFAULTS, root: paths.continuityRoot(), oauthCredentialsPath: path.join(os.tmpdir(), 'none') });
+  assert.strictEqual(s.ttlMinutes, 60);
+
+  // the next hook keeps the proof without the note
+  performCheck({ transcript_path: transcript, cwd, session_id: 's1' }, { config });
+  assert.strictEqual(JSON.parse(fs.readFileSync(paths.statePath(cwd), 'utf8')).subscriptionFrom, 'rate_limits');
+});
+
+test('the rate-limits note name only carries safe characters', () => {
+  const p = paths.rateLimitsProofPath('/repo', '../../evil\\id:1');
+  assert.strictEqual(path.basename(p), 'rate-limits-______evil_id_1.json');
+  assert.strictEqual(path.dirname(p), paths.projectDir('/repo'));
+});
+
 test('performCheck does not inherit another session\'s lastActivityAt when the transcript is not there yet', (t) => {
   withoutApiEnv(t);
   const { cwd, home } = sandbox(t);

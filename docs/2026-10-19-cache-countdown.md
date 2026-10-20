@@ -54,9 +54,9 @@ All three read one rule, `lib/cache-clock.js` (B carries a copy in TypeScript: h
 ## Backlog
 
 - 1.1.1 review (Verify, code review, Sentinel, external review), not blocking:
-  - Without Guardian's status line nobody records the rate_limits proof: a Max session with an
+  - ~~Without Guardian's status line nobody records the rate_limits proof: a Max session with an
     exported-but-declined `ANTHROPIC_API_KEY` shows 60 in the bar (engine rate limits) and 5 in
-    the extension (stored `api-env`). Early, never late. Fix: let the bar record the proof.
+    the extension (stored `api-env`). Early, never late. Fix: let the bar record the proof.~~ done in 1.1.2 (rate-limits note)
   - No test pins the bar's `generation` guard (tick vs `/clear`), the legacy cleanup outside
     the `try`, or the `samePath(legacy, hostDir())` guard in `installNativeHost`.
   - `performCheck` rewrites the whole `state.json` and drops the status line's
@@ -66,10 +66,10 @@ All three read one rule, `lib/cache-clock.js` (B carries a copy in TypeScript: h
   - 17+ sessions rotating in one folder evict each other from the proof list on every refresh.
   - The bar takes max(own turn, shared); status line and host do not: under a minute apart at
     the rounding edge.
-  - External review round 2 (GO): no test pins `readShared` following the current cwd (only the
+  - ~~External review round 2 (GO): no test pins `readShared` following the current cwd (only the
     checkpoint path is pinned), and none pins the live-reading branch of `usageReading`
-    (breaking it shows 5 min early on a Keychain login, never late).
-  - Not yet seen in a real session: `$.session.cwd()` changing after a `cd`.
+    (breaking it shows 5 min early on a Keychain login, never late).~~ both pinned in 1.1.2
+  - Not yet seen in a real session: `$.session.cwd()` changing after a `cd`. (1.1.2: the bar's folder hash matched the hooks' in a real `claude -p` session.)
 
 - ~~One shared "last activity" and "subscription" signal for the three surfaces~~ done in 1.1.1 (order guardian-2026-10-19-001) (today the bar uses
   the end of the main turn, the status line and the host the transcript mtime); they can differ

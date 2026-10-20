@@ -29,6 +29,8 @@ type Disk = {
   pendingDir?: string
   // the session's cwd as $.session.cwd() reports it now (default '/')
   cwd?: string
+  // paths the bar wrote with $.fs.write
+  writes?: string[]
   shared?: { hash: string; json: object; transcriptMtime?: number }
 }
 
@@ -79,6 +81,11 @@ function engine(on: On, state: Disk) {
   on('session.end', (_, e) => ({ sessionId: e.sessionId }))
   on('session.id', () => ({ value: 's1' }))
   on('session.cwd', () => ({ value: state.cwd ?? '/' }))
+  on('fs.write', (_, e) => {
+    state.writes?.push(slashes(e.path))
+
+    return { value: undefined }
+  })
   on('fs.stat', (_, e) => {
     if (state.shared?.transcriptMtime !== undefined && slashes(e.path) === 'C:/home/t.jsonl') {
       return { value: { kind: 'file', size: 1, mtimeMs: state.shared.transcriptMtime, isLink: false } }
@@ -324,6 +331,47 @@ test("another session's state in the same folder is ignored", async ($, on) => {
 
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect(await ui.find({ type: 'Text', text: /Caché/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test("the engine's rate limits leave Guardian one note per session, in the session's folder", async ($, on) => {
+  const state: Disk = { pending: null, ran: [], writes: [] }
+  engine(on, state)
+  await startWithUsage($)
+  await $.session.measure({
+    context: { tokens: 150_000, window: 1_000_000, percent: 15 },
+    rateLimits: [{ kind: 'five_hour', percentUsed: 41 }],
+    changed: [],
+  })
+
+  expect(state.writes).toEqual([`${ROOT}/${PROJECT}/rate-limits-s1.json`])
+})
+
+test('no note without rate limits from the engine (API key)', async ($, on) => {
+  const state: Disk = { pending: null, ran: [], writes: [] }
+  engine(on, state)
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.session.measure({ context: { tokens: 20_000, window: 1_000_000, percent: 2 }, rateLimits: [], changed: [] })
+
+  expect(state.writes).toEqual([])
+})
+
+test("the shared answer follows the session's current folder too", async ($, on) => {
+  engine(on, {
+    pending: null,
+    ran: [],
+    cwd: '/moved',
+    shared: {
+      hash: await projectHash('/moved'),
+      json: { sessionId: 's1', subscription: true, subscriptionFrom: 'login', lastActivityAt: new Date(Date.now() - 20 * 60_000).toISOString() },
+    },
+  })
+  // started in '/', now in '/moved': no turn and no rate limits, so only that folder's state can draw
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.session.measure({ context: { tokens: 20_000, window: 1_000_000, percent: 2 }, rateLimits: [], changed: [] })
+
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect((await ui.find({ type: 'Text', text: /Caché [0-9]+ min/ }))?.text).toBe('Caché 40 min')
   await ui.unmount()
 })
 
