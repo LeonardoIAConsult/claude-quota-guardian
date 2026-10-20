@@ -102,7 +102,7 @@ Instalar: `chrome://extensions` → Modo desarrollador → **Cargar descomprimid
 - **Funciona para cualquier plan y cualquier OS**: detecta solo la cuota de quien lo instale (Pro/Max/Team) leyendo el token OAuth de Claude Code — archivo en Windows/Linux, **Keychain en macOS**.
 - **Monitor visual**: extensión de navegador con badge + popup + caché de cada sesión (arriba).
 - **Instalación de 1 comando, desinstalación limpia**: mergea sus hooks en `settings.json` sin tocar los tuyos; el uninstaller solo quita lo suyo.
-- **318 tests**: 314 con `npm test`, que corren en CI en Windows, macOS y Linux sobre Node 18 y 20, y 4 de la barra con `claude plugin test bar`.
+- **321 tests**: 315 con `npm test`, que corren en CI en Windows, macOS y Linux sobre Node 18 y 20, y 6 de la barra con `claude plugin test bar`.
 - **Extensible a otros proveedores de IA**: arquitectura de adaptadores; hoy incluye monitoreo notify-only de **OpenAI Codex CLI**.
 
 ## ¿Para quién es?

@@ -58,6 +58,23 @@ All three read one rule, `lib/cache-clock.js` (B carries a copy in TypeScript: h
   by the length of the last answer.
 - A repo moved after install leaves its old `bar/` path in `CLAUDE_CODE_PLUGIN_DIRS`; the
   uninstaller run from the new path does not remove it.
+- External review (2026-10-19), not blocking:
+  - `freshCheckpoint` in the bar accepts a fresh pending from any project, not only the
+    current one (narrow race, not reproduced).
+  - Hitting the quota on top of a manual checkpoint writes the blocking pending with
+    `checkpointFile: null`; the manual checkpoint stays on disk without a reference, so the
+    agent writes a new one (by design: the cutoff checkpoint is the newer one).
+  - `bin/uninstall.js` `run()` wiring of `uninstallBar` has no test (the function does).
+  - `bar/tsconfig.json` extends the engine-written types, so `tsc -p bar` fails on a clean
+    clone until the bar has loaded once.
+  - The host treats an OAuth login on disk as a subscription, so an API-key session on a
+    machine that also has an OAuth login shows 60 min.
+
+## Fixed after external review (2026-10-19)
+
+- The native host's launcher and manifest live in `~/.claude/quota-guardian-native-host`, outside
+  `session-continuity` (every folder there is read as a project: it showed up as a phantom
+  "native-host" project in `scripts/report.js`). Install and uninstall remove the old folder.
 
 ## Out of scope
 

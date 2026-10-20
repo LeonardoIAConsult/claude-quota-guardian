@@ -148,6 +148,9 @@ function installNativeHost({ platform, repoRoot, execFn = execFileSync }) {
     for (const [cmd, ...args] of desc.commands) {
       execFn(cmd, args, { stdio: 'ignore' });
     }
+    // an earlier build kept the launcher inside session-continuity, where it
+    // read as a phantom project; the registry now points to the new folder
+    fs.rmSync(nativeHost.legacyHostDir(), { recursive: true, force: true });
     return { success: true };
   } catch (error) {
     return { success: false, error: error.message };

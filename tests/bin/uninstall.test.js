@@ -169,7 +169,7 @@ test('uninstallNativeHost removes what installNativeHost wrote and tolerates abs
   install.installNativeHost({ platform: 'win32', repoRoot: REPO_ROOT, execFn: () => {} });
   const result = uninstall.uninstallNativeHost({ platform: 'win32', execFn: () => { throw new Error('key not found'); } });
   assert.strictEqual(result.success, true);
-  assert.strictEqual(fs.existsSync(path.join(home, '.claude', 'session-continuity', 'native-host', 'guardian-host.cmd')), false);
+  assert.strictEqual(fs.existsSync(path.join(home, '.claude', 'quota-guardian-native-host')), false);
 
   fs.rmSync(home, { recursive: true, force: true });
   delete process.env.CQG_HOME;

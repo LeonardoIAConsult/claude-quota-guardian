@@ -98,6 +98,28 @@ test('Limpiar y seguir never appears, and /clear never runs, without a fresh unc
   expect(state.ran).toEqual(['continuity-checkpoint'])
 })
 
+for (const [name, pending] of [
+  // an unconsumed pending from an earlier handoff: /clear would drop newer work
+  ['older than the handoff', { consumed: false, checkpointFile: 'C:/home/old.md', mtimeMs: Date.now() - 60_000 }],
+  ['naming no checkpoint file', { consumed: false, checkpointFile: null, mtimeMs: Date.now() + 5_000 }],
+] as const) {
+  test(`a pending ${name} never offers Limpiar y seguir`, async ($, on) => {
+    const state: { pending: Pending; ran: string[] } = { pending: { ...pending }, ran: [] }
+    engine(on, state)
+    await startWithUsage($)
+
+    let ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    await ui.press({ key: 'handoff' })
+    await ui.unmount()
+    await $.turn.complete({ answer: 'done', durationMs: 1, isAborted: false, turnId: 't2', reason: 'answer' })
+
+    ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    expect(await ui.find({ key: 'clear' })).toBeUndefined()
+    await ui.unmount()
+    expect(state.ran).toEqual(['continuity-checkpoint'])
+  })
+}
+
 test('a fresh checkpoint turns the button into Limpiar y seguir, which runs /clear', async ($, on) => {
   const state: { pending: Pending; ran: string[] } = { pending: null, ran: [] }
   engine(on, state)

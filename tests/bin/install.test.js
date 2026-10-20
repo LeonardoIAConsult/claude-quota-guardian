@@ -273,14 +273,35 @@ test('installNativeHost writes the launcher and manifest under the continuity ro
   process.env.CQG_HOME = home;
   const calls = [];
 
+  // what an earlier build left inside session-continuity (read as a project there)
+  const legacy = path.join(home, '.claude', 'session-continuity', 'native-host');
+  fs.mkdirSync(legacy, { recursive: true });
+  fs.writeFileSync(path.join(legacy, 'guardian-host.cmd'), 'old');
+
   const result = install.installNativeHost({ platform: 'win32', repoRoot: REPO_ROOT, execFn: (cmd, args) => calls.push([cmd, ...args]) });
   assert.strictEqual(result.success, true);
-  const hostDir = path.join(home, '.claude', 'session-continuity', 'native-host');
+  assert.strictEqual(fs.existsSync(legacy), false);
+  const hostDir = path.join(home, '.claude', 'quota-guardian-native-host');
   assert.ok(fs.existsSync(path.join(hostDir, 'guardian-host.cmd')));
   const manifest = JSON.parse(fs.readFileSync(path.join(hostDir, 'com.leonardoantolinez.quota_guardian.json'), 'utf8'));
   assert.strictEqual(manifest.path, path.join(hostDir, 'guardian-host.cmd'));
   assert.strictEqual(calls.length, 4);
   assert.ok(calls.every((c) => c[0] === 'reg' && c[1] === 'add'));
+
+  fs.rmSync(home, { recursive: true, force: true });
+  delete process.env.CQG_HOME;
+});
+
+test('the browser bridge never shows up as a project in the activity report', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-install-'));
+  process.env.CQG_HOME = home;
+  const { collectReport } = require('../../lib/report');
+
+  for (const platform of ['win32', 'darwin', 'linux']) {
+    install.installNativeHost({ platform, repoRoot: REPO_ROOT, execFn: () => {} });
+  }
+  const report = collectReport(path.join(home, '.claude', 'session-continuity'));
+  assert.ok(!report.projects.some((p) => /native-host/.test(p.dir || p.name || '')), JSON.stringify(report.projects));
 
   fs.rmSync(home, { recursive: true, force: true });
   delete process.env.CQG_HOME;

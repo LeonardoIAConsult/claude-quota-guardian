@@ -124,6 +124,9 @@ function uninstallNativeHost({ platform, execFn = execFileSync }) {
   for (const file of desc.files) {
     if (fs.existsSync(file)) fs.rmSync(file);
   }
+  for (const dir of [nativeHost.hostDir(), nativeHost.legacyHostDir()]) {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
   return { success: true, skipped: errors.length };
 }
 
