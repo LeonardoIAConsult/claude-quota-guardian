@@ -5,17 +5,21 @@
 ### Fixed
 - The extension listed things you do not have open: every session with activity in the last
   24 h (closed ones and unattended routines included), expired ones still on the list, each
-  under the folder of its last `cd` ("lib", "src") instead of its project. It now lists
-  only sessions whose cache is alive, and names each one after the project it started in,
-  decoded from its transcript folder in `~/.claude/projects` (the folder is looked up on disk,
-  so a "-" inside a project name stays in the name). If that folder is gone it falls back to
-  the stored folder name. A session that started in the home folder or at a drive root has no
-  project of its own, so it also keeps the stored folder name (the last `cd`) rather than the
-  OS user's name.
+  under the folder of its last `cd` ("lib", "src") instead of its project. It now lists only
+  sessions whose cache is alive, and names each one after the project it started in, decoded
+  from its transcript folder in `~/.claude/projects` (the folder is looked up on disk, so a
+  "-" inside a project name stays in the name).
+- Sessions with no project of their own (started in the home folder or at a drive root) show
+  "Inicio (~)", never the home folder's name, which is the OS user's. The same label replaces a
+  stored folder name equal to the home folder's when the transcript cannot be read. The home
+  folder is recognised even when it is spelled differently (Windows 8.3 short names).
+- If the transcript folder is gone, the name falls back to the stored folder name, which is the
+  folder of the session's last `cd` (not necessarily its project).
 
 ### Tests
 - Expired caches are left out; one session across several folders is one row named after its
-  project; another project is its own row; the fallback name.
+  project; another project is its own row; the fallback name; home and drive-root starts
+  (with and without a transcript) and the 8.3 spelling of the home folder.
 
 ## 1.1.2 — 2026-10-19
 
