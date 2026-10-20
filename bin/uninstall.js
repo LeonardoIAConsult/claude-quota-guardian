@@ -7,7 +7,16 @@ const paths = require('../lib/paths');
 const { atomicWriteFileSync } = require('../lib/atomic-write');
 const { removeHooks } = require('../lib/hooks-merge');
 const scheduledTask = require('../lib/scheduled-task');
-const { buildHookAdditions, statusLineCommand, COMMAND_FILES } = require('./install');
+const nativeHost = require('../lib/native-host');
+const {
+  buildHookAdditions,
+  statusLineCommand,
+  COMMAND_FILES,
+  PLUGIN_DIRS_VAR,
+  barDir,
+  splitPathList,
+  samePath,
+} = require('./install');
 
 function readJsonOrEmpty(filePath) {
   try {
@@ -79,6 +88,48 @@ function uninstallSchedule({ platform, execFn = execFileSync }) {
   }
 }
 
+// Takes only our folder out of CLAUDE_CODE_PLUGIN_DIRS; other folders stay,
+// and the variable goes away only when ours was the last one.
+function uninstallBar({ settingsFilePath, repoRoot, delimiter = path.delimiter }) {
+  if (!fs.existsSync(settingsFilePath)) return { removed: false };
+
+  const existing = readJsonOrEmpty(settingsFilePath);
+  const env = existing.env || {};
+  const dirs = splitPathList(env[PLUGIN_DIRS_VAR], delimiter);
+  const dir = barDir(repoRoot);
+  if (!dirs.some((d) => samePath(d, dir))) return { removed: false };
+
+  const rest = dirs.filter((d) => !samePath(d, dir));
+  const nextEnv = { ...env };
+  if (rest.length > 0) nextEnv[PLUGIN_DIRS_VAR] = rest.join(delimiter);
+  else delete nextEnv[PLUGIN_DIRS_VAR];
+
+  const result = { ...existing, env: nextEnv };
+  if (Object.keys(nextEnv).length === 0) delete result.env;
+  atomicWriteFileSync(settingsFilePath, JSON.stringify(result, null, 2));
+  return { removed: true };
+}
+
+function uninstallNativeHost({ platform, execFn = execFileSync }) {
+  const desc = nativeHost.describeUninstall(platform);
+  const errors = [];
+  for (const [cmd, ...args] of desc.commands) {
+    try {
+      execFn(cmd, args, { stdio: 'ignore' });
+    } catch (error) {
+      // a key that was never written (that browser absent) is not a failure
+      errors.push(error.message);
+    }
+  }
+  for (const file of desc.files) {
+    if (fs.existsSync(file)) fs.rmSync(file);
+  }
+  for (const dir of [nativeHost.hostDir(), nativeHost.legacyHostDir()]) {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+  return { success: true, skipped: errors.length };
+}
+
 function purgeData() {
   const root = paths.continuityRoot();
   if (fs.existsSync(root)) fs.rmSync(root, { recursive: true, force: true });
@@ -90,6 +141,8 @@ function run({ repoRoot, platform = process.platform, execFn = execFileSync, pur
   const statusLine = uninstallStatusLine({ settingsFilePath: paths.settingsPath(), repoRoot });
   const commandFile = uninstallCommand({ commandsDirPath: paths.commandsDir() });
   const schedule = uninstallSchedule({ platform, execFn });
+  const bar = uninstallBar({ settingsFilePath: paths.settingsPath(), repoRoot });
+  const host = uninstallNativeHost({ platform, execFn });
 
   log(`hooks removed from: ${paths.settingsPath()}`);
   log(statusLine.removed ? 'statusLine unregistered' : 'statusLine left untouched (not owned by claude-quota-guardian, or already removed)');
@@ -99,6 +152,8 @@ function run({ repoRoot, platform = process.platform, execFn = execFileSync, pur
   } else {
     log(`watcher schedule NOT unregistered (${schedule.error}). Manual cleanup: see docs/configuration.md`);
   }
+  log(bar.removed ? 'cache bar disabled' : 'cache bar not enabled (nothing to remove)');
+  log('browser bridge unregistered');
 
   let purged = null;
   if (purge) {
@@ -106,11 +161,21 @@ function run({ repoRoot, platform = process.platform, execFn = execFileSync, pur
     log(`removed continuity data: ${purged}`);
   }
 
-  return { settings, statusLine, commandFile, schedule, purged };
+  return { settings, statusLine, commandFile, schedule, bar, host, purged };
 }
 
 if (require.main === module) {
   run({ repoRoot: path.join(__dirname, '..'), purge: process.argv.includes('--purge') });
 }
 
-module.exports = { uninstallHooks, uninstallStatusLine, uninstallCommand, uninstallSchedule, purgeData, expandHome, run };
+module.exports = {
+  uninstallHooks,
+  uninstallStatusLine,
+  uninstallCommand,
+  uninstallSchedule,
+  uninstallBar,
+  uninstallNativeHost,
+  purgeData,
+  expandHome,
+  run,
+};

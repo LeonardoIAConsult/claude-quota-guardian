@@ -136,6 +136,45 @@ test('uninstallSchedule returns success:false with fallback when execFn throws',
   delete process.env.CQG_HOME;
 });
 
+test('uninstallBar removes only our folder and drops the variable (and env) when it was the last', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-uninstall-'));
+  const settingsFilePath = path.join(dir, 'settings.json');
+  const ours = path.join('/repo', 'bar');
+
+  fs.writeFileSync(settingsFilePath, JSON.stringify({ env: { CLAUDE_CODE_PLUGIN_DIRS: `/my/mod:${ours}`, OTHER: '1' } }));
+  assert.deepStrictEqual(uninstall.uninstallBar({ settingsFilePath, repoRoot: '/repo', delimiter: ':' }), { removed: true });
+  let onDisk = JSON.parse(fs.readFileSync(settingsFilePath, 'utf8'));
+  assert.deepStrictEqual(onDisk.env, { CLAUDE_CODE_PLUGIN_DIRS: '/my/mod', OTHER: '1' });
+
+  fs.writeFileSync(settingsFilePath, JSON.stringify({ env: { CLAUDE_CODE_PLUGIN_DIRS: ours }, theme: 'dark' }));
+  uninstall.uninstallBar({ settingsFilePath, repoRoot: '/repo', delimiter: ':' });
+  onDisk = JSON.parse(fs.readFileSync(settingsFilePath, 'utf8'));
+  assert.deepStrictEqual(onDisk, { theme: 'dark' });
+
+  assert.deepStrictEqual(uninstall.uninstallBar({ settingsFilePath, repoRoot: '/repo', delimiter: ':' }), { removed: false });
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('uninstallNativeHost removes what installNativeHost wrote and tolerates absent registry keys', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-uninstall-'));
+  process.env.CQG_HOME = home;
+
+  install.installNativeHost({ platform: 'linux', repoRoot: REPO_ROOT, execFn: () => {} });
+  const manifest = path.join(home, '.config', 'google-chrome', 'NativeMessagingHosts', 'com.leonardoantolinez.quota_guardian.json');
+  assert.ok(fs.existsSync(manifest));
+  uninstall.uninstallNativeHost({ platform: 'linux', execFn: () => {} });
+  assert.strictEqual(fs.existsSync(manifest), false);
+
+  install.installNativeHost({ platform: 'win32', repoRoot: REPO_ROOT, execFn: () => {} });
+  const result = uninstall.uninstallNativeHost({ platform: 'win32', execFn: () => { throw new Error('key not found'); } });
+  assert.strictEqual(result.success, true);
+  assert.strictEqual(fs.existsSync(path.join(home, '.claude', 'quota-guardian-native-host')), false);
+
+  fs.rmSync(home, { recursive: true, force: true });
+  delete process.env.CQG_HOME;
+});
+
 test('purgeData removes the continuity root directory', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-uninstall-'));
   process.env.CQG_HOME = home;

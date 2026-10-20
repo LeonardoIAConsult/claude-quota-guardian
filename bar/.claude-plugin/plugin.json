@@ -1,0 +1,13 @@
+{
+  "name": "quota-guardian-bar",
+  "version": "1.1.0",
+  "description": "Live prompt-cache countdown above the prompt, with context size, 5h and weekly quota, and a one-click handoff through Claude Quota Guardian's /continuity-checkpoint.",
+  "author": {
+    "name": "Leonardo Antolinez",
+    "url": "https://www.leonardoantolinez.com"
+  },
+  "homepage": "https://www.leonardoantolinez.com/guardian/",
+  "repository": "https://github.com/LeonardoIAConsult/claude-quota-guardian",
+  "license": "MIT",
+  "types": "./types/index.d.ts"
+}

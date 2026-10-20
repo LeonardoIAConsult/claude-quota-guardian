@@ -36,6 +36,15 @@ test('enforceDecision blocks a non-allowlisted tool while a pending checkpoint i
   assert.match(d.reason, /guardian-continue/); // escape hatch is advertised
 });
 
+test('enforceDecision never blocks for a manual checkpoint (Traspaso), even with no sessionId', (t) => {
+  withHome(t);
+  const file = paths.pendingPath(CWD);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ consumed: false, checkpointFile: '/x/c.md', triggeredBy: 'manual', sessionId: null }));
+  assert.strictEqual(enforceDecision({ cwd: CWD, tool_name: 'Read' }), null);
+  assert.strictEqual(enforceDecision({ cwd: CWD, tool_name: 'Edit', session_id: 's9' }), null);
+});
+
 test('enforceDecision allows Bash and Write (the checkpoint flow needs them)', (t) => {
   withHome(t);
   seedPending(false);

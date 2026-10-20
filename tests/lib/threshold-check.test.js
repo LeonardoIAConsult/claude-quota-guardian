@@ -17,6 +17,32 @@ function baseInput(cwd) {
   };
 }
 
+test('performCheck stores the cache countdown inputs and keeps lastActivityAt when the transcript is gone', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-threshold-'));
+  process.env.CQG_HOME = home;
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-project-'));
+  const transcript = path.join(home, 'transcript.jsonl');
+  fs.copyFileSync(path.join(FIXTURES, 'transcript-50pct.jsonl'), transcript);
+  const when = new Date('2026-10-19T19:00:00Z');
+  fs.utimesSync(transcript, when, when);
+  const config = { plan: 'none', thresholds: { context: 0.995, plan: 0.995 } };
+
+  performCheck({ transcript_path: transcript, cwd, session_id: 's1' }, { config });
+  const first = JSON.parse(fs.readFileSync(paths.statePath(cwd), 'utf8'));
+  assert.strictEqual(first.lastActivityAt, when.toISOString());
+  assert.strictEqual(first.transcriptPath, transcript);
+  assert.strictEqual(first.projectName, path.basename(cwd));
+
+  fs.rmSync(transcript);
+  performCheck({ transcript_path: transcript, cwd, session_id: 's1' }, { config });
+  const second = JSON.parse(fs.readFileSync(paths.statePath(cwd), 'utf8'));
+  assert.strictEqual(second.lastActivityAt, when.toISOString());
+
+  fs.rmSync(home, { recursive: true, force: true });
+  fs.rmSync(cwd, { recursive: true, force: true });
+  delete process.env.CQG_HOME;
+});
+
 test('performCheck throttles ccusage to once every planCheckIntervalToolCalls checks', (t) => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-threshold-'));
   process.env.CQG_HOME = home;
@@ -133,6 +159,30 @@ test('performCheck keeps the pending while quota is still over threshold', (t) =
   const { cwd, config, readPending } = setupRelease(t, { ccusage: ccusageAt(97), pending: { triggeredBy: 'plan' } });
 
   assert.ok(performCheck(baseInput(cwd), { config }));
+  assert.strictEqual(readPending().consumed, false);
+});
+
+test('performCheck still writes the blocking pending when only a manual checkpoint is waiting', (t) => {
+  const { cwd, config, readPending } = setupRelease(t, {
+    ccusage: ccusageAt(97),
+    pending: { triggeredBy: 'manual', sessionId: null, checkpointFile: '/x/manual-checkpoint.md' },
+  });
+
+  assert.ok(performCheck(baseInput(cwd), { config }));
+  const p = readPending();
+  assert.notStrictEqual(p.triggeredBy, 'manual');
+  assert.strictEqual(p.consumed, false);
+  assert.strictEqual(p.checkpointFile, null);
+});
+
+test('performCheck leaves a manual checkpoint alone while quota is fine', (t) => {
+  const { cwd, config, readPending } = setupRelease(t, {
+    ccusage: ccusageAt(42),
+    pending: { triggeredBy: 'manual', sessionId: null, checkpointFile: '/x/manual-checkpoint.md' },
+  });
+
+  assert.strictEqual(performCheck(baseInput(cwd), { config }), null);
+  assert.strictEqual(readPending().triggeredBy, 'manual');
   assert.strictEqual(readPending().consumed, false);
 });
 

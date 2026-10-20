@@ -10,6 +10,16 @@ Extensión de navegador (Chrome/Edge/Brave, Manifest V3) para **ver en vivo tu c
   - **Por modelo** (Fable, etc.) — solo informativo (esos límites afectan a un modelo, no a todo).
   - **Créditos en dólares** (por ejemplo, el crédito para sesiones en la nube): usado, restante y vencimiento. Se reconocen por la forma de la respuesta, no por su nombre interno, así que siguen apareciendo aunque Anthropic renombre el campo. No cuentan para la insignia.
   - Tiempo de reinicio de cada ventana y botón de actualizar.
+  - **Caché de Claude Code**: una fila por cada sesión de Claude Code de las últimas 24 h, con los minutos que le quedan al caché (verde; naranja con 5 min o menos; rojo cuando venció). Se actualiza cada 30 s con el popup abierto. Cuando vence, el siguiente mensaje de esa sesión vuelve a pagar todo el contexto.
+
+## El caché se lee en tu equipo
+
+El navegador no puede leer archivos de tu disco. Por eso `node bin/install.js` (en la raíz del repo) registra un programa local, `native-host/guardian-host.js`, como *native messaging host* de Chrome, Edge, Brave y Chromium:
+
+- Solo esta extensión puede abrirlo: su ID queda fijo por la `key` de `manifest.json` y el host solo acepta ese origen.
+- Lee los `state.json` que Guardian ya escribe y responde nombres de proyecto y minutos. Nunca rutas, nunca el contenido de tus conversaciones, sin red.
+- Si no está instalado, el popup te lo dice y lo demás sigue funcionando igual.
+- `node bin/uninstall.js` lo quita.
 
 ## Privacidad / seguridad
 
@@ -23,6 +33,9 @@ Extensión de navegador (Chrome/Edge/Brave, Manifest V3) para **ver en vivo tu c
 2. Activa **Modo desarrollador** (arriba a la derecha).
 3. **Cargar descomprimida** → selecciona esta carpeta `extension/`.
 4. Fija el icono en la barra. Abre/recarga una pestaña de claude.ai con tu sesión iniciada.
+5. Para el caché de Claude Code: corre `node bin/install.js` y reinicia el navegador.
+
+**Si venías de la versión 1.0:** quítala en `chrome://extensions` y vuelve a cargar la carpeta. La 1.1 tiene un ID fijo nuevo (lo necesita el puente local), así que Chrome la trata como otra extensión.
 
 ## Notas
 

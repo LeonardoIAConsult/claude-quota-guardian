@@ -52,5 +52,25 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     refresh().then((usage) => sendResponse({ ok: true, usage }));
     return true; // async response
   }
+  if (msg && msg.type === 'cache') {
+    readCache().then(sendResponse);
+    return true; // async response
+  }
   return false;
 });
+
+// Prompt-cache countdown of the user's Claude Code sessions. The browser cannot
+// read local files, so it asks Guardian's native host (native-host/, registered
+// by `node bin/install.js`), which answers with project names and minutes only.
+const NATIVE_HOST = 'com.leonardoantolinez.quota_guardian';
+
+async function readCache() {
+  try {
+    const reply = await chrome.runtime.sendNativeMessage(NATIVE_HOST, { type: 'cache' });
+    if (!reply || reply.ok !== true || !Array.isArray(reply.sessions)) return { ok: false, reason: 'host-error' };
+    return { ok: true, disabled: Boolean(reply.disabled), sessions: reply.sessions, fetchedAt: Date.now() };
+  } catch (_) {
+    // "Specified native messaging host not found" and friends: bridge not installed
+    return { ok: false, reason: 'no-host' };
+  }
+}

@@ -10,14 +10,42 @@
   },
   "plugins": [
     {
-      "name": "claude-quota-guardian",
+      "name": "quota-guardian",
       "source": "./",
       "description": "Watches your real Claude account quota (5h session, weekly, per-model) and forces a resumable checkpoint right before the cutoff, so the next session continues with almost no tokens.",
-      "version": "1.0.0",
-      "author": { "name": "Leonardo Antolinez", "url": "https://www.leonardoantolinez.com" },
+      "version": "1.1.0",
+      "author": {
+        "name": "Leonardo Antolinez",
+        "url": "https://www.leonardoantolinez.com"
+      },
       "homepage": "https://www.leonardoantolinez.com/guardian/",
       "license": "MIT",
-      "keywords": ["quota", "checkpoint", "continuity", "usage", "resume"]
+      "keywords": [
+        "quota",
+        "checkpoint",
+        "continuity",
+        "usage",
+        "resume"
+      ]
+    },
+    {
+      "name": "quota-guardian-bar",
+      "source": "./bar",
+      "description": "Live prompt-cache countdown above the prompt, with context size, 5h and weekly quota, and a one-click handoff through /continuity-checkpoint. Install together with quota-guardian.",
+      "version": "1.1.0",
+      "author": {
+        "name": "Leonardo Antolinez",
+        "url": "https://www.leonardoantolinez.com"
+      },
+      "homepage": "https://www.leonardoantolinez.com/guardian/",
+      "license": "MIT",
+      "keywords": [
+        "cache",
+        "tokens",
+        "countdown",
+        "handoff",
+        "quota"
+      ]
     }
   ]
 }
