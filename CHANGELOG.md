@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.1.1 — 2026-10-19
+
+### Fixed
+- The status line, the bar and the extension now show the same cache minutes for the same
+  session: each session has one `lastActivityAt` and one `subscription` answer in its
+  `state.json`, and all three read them.
+- Subscription proof from rate_limits is kept per session in a short list, so two sessions
+  sharing a folder never make the idle status line rewrite state.json; a usage reading counts
+  as an OAuth login (macOS keeps the token in the Keychain, not in a file).
+- An API-key session on a machine that also has an OAuth login shows 5 min, not 60
+  (`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` or Bedrock/Vertex/Foundry switches mean per-token).
+- After `/clear` or `/resume` the bar forgets the previous conversation's countdown (no
+  `session.start` fires for them; the bar now listens to `session.end`).
+- A bar tick that outlives its session no longer leaves an unhandled rejection, and a tick
+  in flight across `/clear` no longer writes the old conversation's numbers into the new one.
+- One precedence for the subscription answer in all three surfaces: rate limits (now, or
+  recorded for the session) before the stored answer; `0`/`false`/`off` API switches count as
+  off; a usage reading (live or cached) proves a login only while it is under an hour old.
+- "Limpiar y seguir" only accepts the checkpoint of the folder the session is in now
+  (where /continuity-checkpoint writes it, also after a cd).
+- Installing the browser bridge no longer reports failure when only the cleanup of the old
+  folder fails, and never deletes the launcher it just wrote.
+
 ## 1.1.0 — 2026-10-19
 
 ### Added

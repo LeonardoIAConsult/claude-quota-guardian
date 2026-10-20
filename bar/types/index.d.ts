@@ -7,6 +7,12 @@ export type Usage = {
   subscription: boolean
 }
 
+export type Shared = {
+  lastActivity: number | null
+  subscription: boolean | null
+  from: string | null
+}
+
 export type CacheConfig = {
   enabled: boolean
   ttlMinutes: number | null
@@ -17,6 +23,7 @@ declare module 'claude-code' {
   interface PluginState {
     'quota-guardian-bar': {
       usage: Usage | null
+      shared: Shared | null
       config: CacheConfig
       lastTurn: number
       now: number

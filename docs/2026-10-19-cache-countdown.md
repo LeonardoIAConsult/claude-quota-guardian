@@ -53,7 +53,25 @@ All three read one rule, `lib/cache-clock.js` (B carries a copy in TypeScript: h
 
 ## Backlog
 
-- One shared "last activity" and "subscription" signal for the three surfaces (today the bar uses
+- 1.1.1 review (Verify, code review, Sentinel, external review), not blocking:
+  - Without Guardian's status line nobody records the rate_limits proof: a Max session with an
+    exported-but-declined `ANTHROPIC_API_KEY` shows 60 in the bar (engine rate limits) and 5 in
+    the extension (stored `api-env`). Early, never late. Fix: let the bar record the proof.
+  - No test pins the bar's `generation` guard (tick vs `/clear`), the legacy cleanup outside
+    the `try`, or the `samePath(legacy, hostDir())` guard in `installNativeHost`.
+  - `performCheck` rewrites the whole `state.json` and drops the status line's
+    `rateLimitByModel` until its next refresh (since adbf6cd; `subscriptionSessions` survives),
+    and a status-line write during a slow `performCheck` is lost until the next refresh.
+  - `apiKeyHelper` in settings is not detected as per-token (no env var to see).
+  - 17+ sessions rotating in one folder evict each other from the proof list on every refresh.
+  - The bar takes max(own turn, shared); status line and host do not: under a minute apart at
+    the rounding edge.
+  - External review round 2 (GO): no test pins `readShared` following the current cwd (only the
+    checkpoint path is pinned), and none pins the live-reading branch of `usageReading`
+    (breaking it shows 5 min early on a Keychain login, never late).
+  - Not yet seen in a real session: `$.session.cwd()` changing after a `cd`.
+
+- ~~One shared "last activity" and "subscription" signal for the three surfaces~~ done in 1.1.1 (order guardian-2026-10-19-001) (today the bar uses
   the end of the main turn, the status line and the host the transcript mtime); they can differ
   by the length of the last answer.
 - A repo moved after install leaves its old `bar/` path in `CLAUDE_CODE_PLUGIN_DIRS`; the
@@ -67,18 +85,18 @@ All three read one rule, `lib/cache-clock.js` (B carries a copy in TypeScript: h
   - `bin/uninstall.js` `run()` wiring of `uninstallBar` has no test (the function does).
   - `bar/tsconfig.json` extends the engine-written types, so `tsc -p bar` fails on a clean
     clone until the bar has loaded once.
-  - The host treats an OAuth login on disk as a subscription, so an API-key session on a
-    machine that also has an OAuth login shows 60 min.
+  - ~~The host treats an OAuth login on disk as a subscription, so an API-key session on a
+    machine that also has an OAuth login shows 60 min.~~ done in 1.1.1 (API env wins)
 
 - External review, round 2 (GO), not blocking:
   - The report test does not catch, on its own, a `hostDir()` moved back inside
     `session-continuity` (the legacy cleanup hides it; the `installNativeHost` test catches it).
-    Add `assert.ok(!host.hostDir().startsWith(paths.continuityRoot()))`.
+    Add `assert.ok(!host.hostDir().startsWith(paths.continuityRoot()))`. Done in 1.1.1.
   - `installNativeHost` would delete the launcher it just wrote if `hostDir()` ever equalled
-    `legacyHostDir()`; guard with `if (legacy !== hostDir())`.
-  - No test that the uninstaller removes the legacy folder.
-  - The legacy cleanup sits inside the `try`: a locked `.cmd` would report the host install
-    as failed although the registry is already right.
+    `legacyHostDir()`; guard with `if (legacy !== hostDir())`. Done in 1.1.1.
+  - ~~No test that the uninstaller removes the legacy folder.~~ done in 1.1.1
+  - ~~The legacy cleanup sits inside the `try`: a locked `.cmd` would report the host install
+    as failed although the registry is already right.~~ done in 1.1.1
 
 ## Fixed after external review (2026-10-19)
 
