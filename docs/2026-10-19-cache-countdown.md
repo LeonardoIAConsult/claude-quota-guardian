@@ -70,6 +70,16 @@ All three read one rule, `lib/cache-clock.js` (B carries a copy in TypeScript: h
   - The host treats an OAuth login on disk as a subscription, so an API-key session on a
     machine that also has an OAuth login shows 60 min.
 
+- External review, round 2 (GO), not blocking:
+  - The report test does not catch, on its own, a `hostDir()` moved back inside
+    `session-continuity` (the legacy cleanup hides it; the `installNativeHost` test catches it).
+    Add `assert.ok(!host.hostDir().startsWith(paths.continuityRoot()))`.
+  - `installNativeHost` would delete the launcher it just wrote if `hostDir()` ever equalled
+    `legacyHostDir()`; guard with `if (legacy !== hostDir())`.
+  - No test that the uninstaller removes the legacy folder.
+  - The legacy cleanup sits inside the `try`: a locked `.cmd` would report the host install
+    as failed although the registry is already right.
+
 ## Fixed after external review (2026-10-19)
 
 - The native host's launcher and manifest live in `~/.claude/quota-guardian-native-host`, outside
