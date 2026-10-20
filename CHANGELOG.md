@@ -6,6 +6,9 @@
 - The status line, the bar and the extension now show the same cache minutes for the same
   session: each session has one `lastActivityAt` and one `subscription` answer in its
   `state.json`, and all three read them.
+- Subscription proof from rate_limits is kept per session in a short list, so two sessions
+  sharing a folder never make the idle status line rewrite state.json; a usage reading counts
+  as an OAuth login (macOS keeps the token in the Keychain, not in a file).
 - An API-key session on a machine that also has an OAuth login shows 5 min, not 60
   (`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` or Bedrock/Vertex/Foundry switches mean per-token).
 - After `/clear` or `/resume` the bar forgets the previous conversation's countdown (no
