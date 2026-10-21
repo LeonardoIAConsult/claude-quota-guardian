@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.1.4 — unreleased
+## 1.1.4 — 2026-10-20
 
 ### Fixed
 - A session with no transcript whose stored folder name is the home folder's 8.3 short form
