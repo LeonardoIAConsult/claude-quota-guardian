@@ -283,15 +283,103 @@ test('collectCacheSessions: a session started at a drive root shows the neutral 
   cleanup();
 });
 
-test('projectFromTranscript: the home folder given in a different spelling (8.3 short names) is still the home folder', () => {
-  // os.tmpdir() is itself an 8.3 path on some Windows accounts: same folder, two spellings
-  const raw = makeRoot();
-  const real = fs.realpathSync.native(raw);
-  const home = path.join(real, 'Users', 'Jane Doe');
-  fs.mkdirSync(home, { recursive: true });
-  const t = path.join(encodedFolder(real, home), 'h.jsonl');
-  assert.strictEqual(withHome(path.join(raw, 'Users', 'Jane Doe'), () => host.projectFromTranscript(t)), 'Inicio (~)');
-  fs.rmSync(raw, { recursive: true, force: true });
+// The Windows 8.3 short spelling of a folder (JANEDO~1), or null where the volume
+// keeps no short names (macOS, Linux, Windows volumes with 8.3 generation off).
+function shortPath(p) {
+  if (process.platform !== 'win32') return null;
+  const r = spawnSync('cmd.exe', ['/d', '/c', `for %I in ("${p}") do @echo %~sI`], { encoding: 'utf8', windowsVerbatimArguments: true });
+  const short = (r.stdout || '').trim();
+  return short && path.basename(short) !== path.basename(p) ? short : null;
+}
+
+// A second spelling of the home folder that works on every OS: a link to it
+// (a junction on Windows needs no admin rights). realpath resolves it, exactly
+// like an 8.3 short name, so it exercises the same code without depending on
+// what os.tmpdir() happens to look like on the machine running the suite.
+function linkedHomeFixture() {
+  const fx = homeFixture();
+  const links = path.join(fx.base, 'links');
+  fs.mkdirSync(links);
+  const link = path.join(links, 'jd-link');
+  fs.symlinkSync(fx.home, link, 'junction');
+  return { ...fx, link };
+}
+
+function sessionsWithHome(home, root) {
+  return withHome(home, () => host.collectCacheSessions({ config: DEFAULTS, now: NOW, root, oauthCredentialsPath: NO_CREDS }));
+}
+
+test('projectFromTranscript: the home folder given through a link (another spelling) is still the home folder', () => {
+  const { base, home, link, cleanup } = linkedHomeFixture();
+  const t = path.join(encodedFolder(base, home), 'h.jsonl');
+  assert.strictEqual(withHome(link, () => host.projectFromTranscript(t)), 'Inicio (~)');
+  cleanup();
+});
+
+test('collectCacheSessions: home given through a link, the stored name is the real folder name', () => {
+  // the hooks store the name of the folder as the OS reports it (Jane Doe),
+  // while CQG_HOME spells the home through the link (jd-link)
+  const { root, link, cleanup } = linkedHomeFixture();
+  writeState(root, 'a', { projectName: 'Jane Doe', lastActivityAt: new Date(NOW - MIN).toISOString() });
+  assert.deepStrictEqual(sessionsWithHome(link, root).map((s) => s.project), ['Inicio (~)']);
+  cleanup();
+});
+
+test('collectCacheSessions: home given through a link, the stored name is the link name', () => {
+  const { root, link, cleanup } = linkedHomeFixture();
+  writeState(root, 'a', { projectName: 'jd-link', lastActivityAt: new Date(NOW - MIN).toISOString() });
+  assert.deepStrictEqual(sessionsWithHome(link, root).map((s) => s.project), ['Inicio (~)']);
+  cleanup();
+});
+
+test('collectCacheSessions: a sibling of the home folder keeps its own name', () => {
+  const { root, home, cleanup } = homeFixture();
+  fs.mkdirSync(path.join(path.dirname(home), 'Other User'));
+  writeState(root, 'a', { projectName: 'Other User', lastActivityAt: new Date(NOW - MIN).toISOString() });
+  writeState(root, 'b', { projectName: '..', lastActivityAt: new Date(NOW - 2 * MIN).toISOString() });
+  assert.deepStrictEqual(sessionsWithHome(home, root).map((s) => s.project), ['Other User', '..']);
+  cleanup();
+});
+
+test('projectFromTranscript: the home folder given in its 8.3 short spelling is still the home folder', (t) => {
+  const { base, home, cleanup } = homeFixture();
+  const short = shortPath(home);
+  if (!short) { cleanup(); t.skip('no 8.3 short names here (not Windows, or 8.3 generation off); the link tests cover the same path'); return; }
+  const tr = path.join(encodedFolder(base, home), 'h.jsonl');
+  assert.strictEqual(withHome(short, () => host.projectFromTranscript(tr)), 'Inicio (~)');
+  cleanup();
+});
+
+test('collectCacheSessions: a stored name in its 8.3 short form (JANEDO~1) is the home folder', (t) => {
+  const { root, home, cleanup } = homeFixture();
+  const short = shortPath(home);
+  if (!short) { cleanup(); t.skip('no 8.3 short names here (not Windows, or 8.3 generation off)'); return; }
+  writeState(root, 'a', { projectName: path.basename(short), lastActivityAt: new Date(NOW - MIN).toISOString() });
+  const sessions = sessionsWithHome(home, root);
+  assert.deepStrictEqual(sessions.map((s) => s.project), ['Inicio (~)']);
+  assert.ok(!JSON.stringify(sessions).includes('~1'));
+  cleanup();
+});
+
+test('namesMatch: case is ignored where the default file system ignores it (Windows, macOS), not on Linux', () => {
+  assert.strictEqual(host.namesMatch('Jane Doe', 'JANE DOE', 'win32'), true);
+  assert.strictEqual(host.namesMatch('Jane Doe', 'JANE DOE', 'darwin'), true);
+  assert.strictEqual(host.namesMatch('Jane Doe', 'JANE DOE', 'linux'), false);
+  assert.strictEqual(host.namesMatch('Jane Doe', 'Jane Doe', 'linux'), true);
+  assert.strictEqual(host.namesMatch('Jane Doe', 'Jane Do', 'darwin'), false);
+});
+
+test('collectCacheSessions: on macOS a stored home name spelled with other case is the home folder', () => {
+  const { root, home, cleanup } = homeFixture();
+  writeState(root, 'a', { projectName: 'JANE DOE', lastActivityAt: new Date(NOW - MIN).toISOString() });
+  const saved = Object.getOwnPropertyDescriptor(process, 'platform');
+  Object.defineProperty(process, 'platform', { value: 'darwin' });
+  try {
+    assert.deepStrictEqual(sessionsWithHome(home, root).map((s) => s.project), ['Inicio (~)']);
+  } finally {
+    Object.defineProperty(process, 'platform', saved);
+    cleanup();
+  }
 });
 
 test('collectCacheSessions: missing root is an empty list', () => {

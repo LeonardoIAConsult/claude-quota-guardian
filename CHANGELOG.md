@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.1.4 — 2026-10-20
+
+### Fixed
+- A session with no transcript whose stored folder name is the home folder's 8.3 short form
+  (`JANEDO~1`) now shows "Inicio (~)" instead of the short name: the stored name is checked
+  next to the real home folder and resolved, not only compared as text.
+- macOS: the home folder is recognised when its name is spelled with other case. Names and
+  folders are compared ignoring case on Windows and macOS (their default file systems ignore
+  it), and exactly on Linux.
+
+### Tests
+- The other-spelling tests no longer depend on the machine: a link to the home folder gives a
+  second spelling on every OS. The 8.3 tests use a real short name and say so when they skip
+  (no 8.3 names on the volume) instead of passing without testing anything.
+- Each way `isHomeName` recognises the home folder has its own test (the name it was given,
+  the real name, the 8.3 name, other case on macOS), and a sibling folder keeps its own name.
+
 ## 1.1.3 — 2026-10-20
 
 ### Fixed
