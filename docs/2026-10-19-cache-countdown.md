@@ -73,7 +73,7 @@ All three read one rule, `lib/cache-clock.js` (B carries a copy in TypeScript: h
     (cleanup between stat and rm while the bar rewrites a resumed session's note) can drop a fresh
     note. Both show 5 min early, never late, and only if the list also lost the session.
   - Not yet seen in a real session: `$.session.cwd()` changing after a `cd`. Still open. (Separately, 1.1.2 confirmed in a real `claude -p` session that the bar's folder hash matches the hooks' without a cd.)
-  - 1.1.3 review (GO), not blocking:
+  - ~~1.1.3 review (GO), not blocking~~ done in 1.1.4 (branch `fix/backlog-1.1.4`):
     - `isHomeName` compares the stored folder name with the home folder's long and real names,
       but a name stored in its 8.3 short form (`USERNA~1`) is not recognised: with no
       transcript, that session would show the short name instead of "Inicio (~)".
