@@ -244,14 +244,18 @@ test('the rate-limits note name only carries safe characters', () => {
   assert.strictEqual(path.dirname(p), paths.projectDir('/repo'));
 });
 
-test('performCheck does not inherit another session\'s lastActivityAt when the transcript is not there yet', (t) => {
+test('performCheck stamps its own session and keeps another session\'s activity in the map, not as its own', (t) => {
   withoutApiEnv(t);
   const { cwd, home } = sandbox(t);
   fs.mkdirSync(path.dirname(paths.statePath(cwd)), { recursive: true });
-  fs.writeFileSync(paths.statePath(cwd), JSON.stringify({ sessionId: 'A', lastActivityAt: new Date(Date.now() - 3 * MIN).toISOString() }));
+  const aAt = new Date(Date.now() - 3 * MIN).toISOString();
+  fs.writeFileSync(paths.statePath(cwd), JSON.stringify({ sessionId: 'A', lastActivityAt: aAt, transcriptPath: 'a.jsonl' }));
 
   performCheck({ transcript_path: path.join(home, 'not-yet.jsonl'), cwd, session_id: 'B' }, { config });
-  assert.strictEqual(JSON.parse(fs.readFileSync(paths.statePath(cwd), 'utf8')).lastActivityAt, null);
+  const state = JSON.parse(fs.readFileSync(paths.statePath(cwd), 'utf8'));
+  assert.ok(Date.parse(state.lastActivityAt) > Date.parse(aAt), 'B does not inherit A\'s time');
+  assert.strictEqual(state.cacheSessions.B.lastActivityAt, state.lastActivityAt);
+  assert.strictEqual(state.cacheSessions.A.lastActivityAt, aAt);
 });
 
 test('sessionSubscription: the one precedence (rate limits now > proof for this session > stored answer)', () => {

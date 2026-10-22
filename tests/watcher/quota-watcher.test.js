@@ -392,15 +392,15 @@ test('selfHealHooks re-merges missing guardian hooks and notifies', () => {
   });
 
   assert.strictEqual(first.healed, true);
-  assert.strictEqual(first.missing, 4);
+  assert.strictEqual(first.missing, 6);
   assert.strictEqual(sent.length, 1);
 
   const settings = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
   // Foreign hook and statusLine untouched.
   assert.ok(settings.hooks.PreToolUse.some((e) => e.hooks.some((h) => h.command === 'node other-tool.js')));
   assert.strictEqual(settings.statusLine.command, 'node someone-elses.js');
-  // All four guardian hooks restored.
-  for (const event of ['PreToolUse', 'PostToolUse', 'Stop', 'SessionStart']) {
+  // All six guardian hooks restored (UserPromptSubmit and SessionEnd feed the cache countdown).
+  for (const event of ['PreToolUse', 'PostToolUse', 'Stop', 'SessionStart', 'UserPromptSubmit', 'SessionEnd']) {
     assert.ok(settings.hooks[event].some((e) => e.hooks.some((h) => h.command.includes('claude-quota-guardian') || h.command.includes(repoRoot))), event + ' restored');
   }
 

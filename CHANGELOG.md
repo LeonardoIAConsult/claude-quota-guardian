@@ -1,5 +1,38 @@
 # Changelog
 
+## 1.1.7 — 2026-10-22
+
+### Fixed
+- Extension cache list: a session that already ended (a `claude -p` or scheduled routine, an
+  exited session) no longer shows "Envía un mensaje para mantenerlo". New `SessionEnd` hook
+  (`hooks/session-end.js`) marks it ended; the host skips a session ended after its last use.
+  A killed process fires no `SessionEnd`: its row leaves when its cache expires.
+- Countdown showed minutes too many: the transcript's mtime also moves on summaries, titles and a
+  reopened Desktop session. The hooks now stamp `lastActivityAt` when they run (PostToolUse, Stop
+  and the new `UserPromptSubmit`, which keeps a long turn without tools alive); the mtime is only
+  the fallback for a state nothing has stamped. Same rule in the host, the status line and the bar.
+- Two sessions in the same folder erased each other from the extension's list (one `state.json`
+  per folder). Each session now has its own entry in `cacheSessions` (up to 8, none older than
+  24 h), merged on every write from a fresh read; the host deduplicates by session id, and the
+  status line and the bar read their own entry. Not locked: two hooks of different sessions in the
+  same few milliseconds can lose one entry's update until that session's next hook.
+- Six hooks are registered (install, plugin `hooks/hooks.json`, watcher self-heal, uninstall).
+  An existing install picks up the two new ones on its own: the watcher's self-heal adds missing
+  Guardian hooks (or run `node bin/install.js` again). Until then, a long turn without tools can
+  show fewer minutes than real (the safe side); the next tool use or Stop corrects it.
+- An end marker that SessionEnd left in a folder where the session never stamped activity no longer
+  brings the session back through its transcript's mtime.
+- Review fixes: the status line re-reads `state.json` right before it writes, so it no longer puts
+  back an older `cacheSessions` over another session's fresh entry or `endedAt`; the host and the
+  status line stat the transcript only when no activity time is stored; `SessionStart` clears
+  `endedAt` of a session reopened with `--resume` (it stamps no activity); two session ids on one
+  transcript are one row; `docs/configuration.md` lists the six hooks.
+
+### Tests
+- New `tests/lib/cache-sessions.test.js` and `cache-sessions-review.test.js` run the hooks as
+  processes: two sessions in one folder, one ends, a transcript touched after Stop, a reopened
+  session, the status line's write. 423 in all: 397 with `npm test` and 26 for the bar.
+
 ## 1.1.6 — 2026-10-22
 
 ### Fixed

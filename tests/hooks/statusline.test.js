@@ -181,6 +181,36 @@ test('statusline cache countdown honours config.cache (pinned ttl, disabled)', (
   fs.rmSync(home, { recursive: true, force: true });
 });
 
+test('statusline counts from the stored activity, not from a transcript touched later', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-home-'));
+  const cwd = 'C:\\fake\\project';
+  fs.mkdirSync(path.dirname(stateFileFor(home, cwd)), { recursive: true });
+  fs.writeFileSync(stateFileFor(home, cwd), JSON.stringify({
+    sessionId: 's1',
+    subscription: true,
+    lastActivityAt: new Date(Date.now() - 18 * 60000).toISOString(),
+  }));
+  // a summary rewrote the transcript just now: it must not add minutes
+  const out = runHook({ cwd, session_id: 's1', transcript_path: transcriptAgedMinutes(home, 0) }, { CQG_HOME: home });
+  assert.match(out, /\| cache 42m$/);
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('statusline: two sessions in one folder each show their own countdown (the other one wrote state.json last)', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-home-'));
+  const cwd = 'C:\\fake\\project';
+  fs.mkdirSync(path.dirname(stateFileFor(home, cwd)), { recursive: true });
+  fs.writeFileSync(stateFileFor(home, cwd), JSON.stringify({
+    sessionId: 'other',
+    subscription: true,
+    lastActivityAt: new Date().toISOString(),
+    cacheSessions: { s1: { subscription: true, lastActivityAt: new Date(Date.now() - 18 * 60000).toISOString() } },
+  }));
+  const out = runHook({ cwd, session_id: 's1', transcript_path: path.join(home, 'missing.jsonl') }, { CQG_HOME: home });
+  assert.match(out, /\| cache 42m$/);
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
 test('statusline omits the cache countdown before the first message (no transcript yet)', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-home-'));
   const out = runHook({ cwd: 'C:\\fake\\project', transcript_path: path.join(home, 'missing.jsonl') }, { CQG_HOME: home });

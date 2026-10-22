@@ -71,7 +71,7 @@ function runWatcherOnce({ now = new Date(), config = loadConfig(), notifySend = 
 // and silently dropped Guardian's hooks -- the watcher kept running but the
 // whole detect/checkpoint loop was dead for 23 days before anyone noticed.
 // The watcher is the only Guardian process guaranteed to keep running, so on
-// every pass it verifies the four hooks are still registered and re-merges
+// every pass it verifies the six hooks are still registered and re-merges
 // them (via the installer's own idempotent merge) if anything removed them.
 // Note: bin/uninstall.js removes the watcher schedule itself, so an
 // uninstalled Guardian cannot resurrect its own hooks through this path.
@@ -99,7 +99,8 @@ function selfHealHooks({
   if (config.notifications && config.notifications.enabled) {
     notifySend(
       'Claude Quota Guardian',
-      `Hooks reinstalados (${missing.length} faltaban en settings.json) — algo los había borrado. Guardian sigue activo.`
+      // also the path an update takes when it adds hooks, so no claim that something deleted them
+      `Hooks de Guardian al día: ${missing.length} agregados a settings.json. Guardian sigue activo.`
     );
   }
   return { healed: true, missing: missing.length };

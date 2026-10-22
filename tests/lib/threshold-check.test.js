@@ -17,7 +17,7 @@ function baseInput(cwd) {
   };
 }
 
-test('performCheck stores the cache countdown inputs and keeps lastActivityAt when the transcript is gone', () => {
+test('performCheck stamps lastActivityAt with the time the hook ran, not the transcript mtime, and keeps the session entry', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-threshold-'));
   process.env.CQG_HOME = home;
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-project-'));
@@ -27,16 +27,21 @@ test('performCheck stores the cache countdown inputs and keeps lastActivityAt wh
   fs.utimesSync(transcript, when, when);
   const config = { plan: 'none', thresholds: { context: 0.995, plan: 0.995 } };
 
+  const before = Date.now();
   performCheck({ transcript_path: transcript, cwd, session_id: 's1' }, { config });
   const first = JSON.parse(fs.readFileSync(paths.statePath(cwd), 'utf8'));
-  assert.strictEqual(first.lastActivityAt, when.toISOString());
+  const stamped = Date.parse(first.lastActivityAt);
+  assert.ok(stamped >= before && stamped <= Date.now(), 'the hook time, whatever the transcript mtime says');
   assert.strictEqual(first.transcriptPath, transcript);
   assert.strictEqual(first.projectName, path.basename(cwd));
+  assert.strictEqual(first.cacheSessions.s1.lastActivityAt, first.lastActivityAt);
+  assert.strictEqual(first.cacheSessions.s1.transcriptPath, transcript);
 
+  // a missing transcript changes nothing: the stamp does not read it
   fs.rmSync(transcript);
   performCheck({ transcript_path: transcript, cwd, session_id: 's1' }, { config });
   const second = JSON.parse(fs.readFileSync(paths.statePath(cwd), 'utf8'));
-  assert.strictEqual(second.lastActivityAt, when.toISOString());
+  assert.ok(Date.parse(second.lastActivityAt) >= stamped);
 
   fs.rmSync(home, { recursive: true, force: true });
   fs.rmSync(cwd, { recursive: true, force: true });

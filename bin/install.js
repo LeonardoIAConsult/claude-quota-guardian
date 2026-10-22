@@ -45,6 +45,8 @@ function buildHookAdditions(repoRoot) {
     { event: 'PostToolUse', matcher: '*', command: `node "${path.join(repoRoot, 'hooks', 'check-usage.js')}"` },
     { event: 'Stop', matcher: '*', command: `node "${path.join(repoRoot, 'hooks', 'heartbeat-stop.js')}"` },
     { event: 'SessionStart', matcher: '*', command: `node "${path.join(repoRoot, 'hooks', 'resume-context.js')}"` },
+    { event: 'UserPromptSubmit', matcher: '*', command: `node "${path.join(repoRoot, 'hooks', 'prompt-submit.js')}"` },
+    { event: 'SessionEnd', matcher: '*', command: `node "${path.join(repoRoot, 'hooks', 'session-end.js')}"` },
   ];
 }
 

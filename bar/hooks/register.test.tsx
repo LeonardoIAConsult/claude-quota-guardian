@@ -271,7 +271,7 @@ test("a false that is not an API setting does not beat the engine's rate limits"
   await ui.unmount()
 })
 
-test('the bar counts from the shared activity like the host: max(lastActivityAt, transcript mtime)', async ($, on) => {
+test('the bar counts from the stored activity like the host: a newer transcript mtime no longer beats it', async ($, on) => {
   const twentyAgo = Date.now() - 20 * 60_000
   engine(on, {
     pending: null,
@@ -292,7 +292,49 @@ test('the bar counts from the shared activity like the host: max(lastActivityAt,
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
   await $.session.measure({ context: { tokens: 20_000, window: 1_000_000, percent: 2 }, rateLimits: [], changed: [] })
 
-  // lib/cache-clock.js cacheStatus on the same inputs: ceil((twentyAgo + 60 min - now) / 1 min) = 40
+  // lib/cache-clock.js cacheStatus on the same inputs: the stored time wins,
+  // ceil((twentyAgo - 5 min + 60 min - now) / 1 min) = 35 (the mtime would give 40)
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect((await ui.find({ type: 'Text', text: /Caché [0-9]+ min/ }))?.text).toBe('Caché 35 min')
+  await ui.unmount()
+})
+
+test('the transcript mtime is only the fallback when no hook stored an activity', async ($, on) => {
+  const twentyAgo = Date.now() - 20 * 60_000
+  engine(on, {
+    pending: null,
+    ran: [],
+    shared: {
+      hash: await projectHash('/'),
+      json: { sessionId: 's1', subscription: true, subscriptionFrom: 'login', transcriptPath: 'C:/home/t.jsonl' },
+      transcriptMtime: twentyAgo,
+    },
+  })
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.session.measure({ context: { tokens: 20_000, window: 1_000_000, percent: 2 }, rateLimits: [], changed: [] })
+
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect((await ui.find({ type: 'Text', text: /Caché [0-9]+ min/ }))?.text).toBe('Caché 40 min')
+  await ui.unmount()
+})
+
+test("another session wrote the folder's state last: the bar reads its own entry in the per-session map", async ($, on) => {
+  engine(on, {
+    pending: null,
+    ran: [],
+    shared: {
+      hash: await projectHash('/'),
+      json: {
+        sessionId: 'other',
+        subscription: true,
+        lastActivityAt: new Date().toISOString(),
+        cacheSessions: { s1: { subscription: true, lastActivityAt: new Date(Date.now() - 20 * 60_000).toISOString() } },
+      },
+    },
+  })
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.session.measure({ context: { tokens: 20_000, window: 1_000_000, percent: 2 }, rateLimits: [], changed: [] })
+
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect((await ui.find({ type: 'Text', text: /Caché [0-9]+ min/ }))?.text).toBe('Caché 40 min')
   await ui.unmount()

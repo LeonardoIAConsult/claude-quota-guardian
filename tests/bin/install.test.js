@@ -39,7 +39,7 @@ test('installConfig preserves existing overrides and is idempotent', () => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test('installHooks adds PreToolUse, PostToolUse, Stop and SessionStart hooks with absolute paths', () => {
+test('installHooks adds PreToolUse, PostToolUse, Stop, SessionStart, UserPromptSubmit and SessionEnd hooks with absolute paths', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-install-'));
   const settingsFilePath = path.join(dir, 'settings.json');
 
@@ -53,6 +53,8 @@ test('installHooks adds PreToolUse, PostToolUse, Stop and SessionStart hooks wit
   assert.match(postToolUse, /check-usage\.js"$/);
   assert.match(stop, /heartbeat-stop\.js"$/);
   assert.match(sessionStart, /resume-context\.js"$/);
+  assert.match(result.hooks.UserPromptSubmit[0].hooks[0].command, /prompt-submit\.js"$/);
+  assert.match(result.hooks.SessionEnd[0].hooks[0].command, /session-end\.js"$/);
 
   fs.rmSync(dir, { recursive: true, force: true });
 });

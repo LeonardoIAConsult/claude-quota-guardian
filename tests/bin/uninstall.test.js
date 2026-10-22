@@ -24,6 +24,8 @@ test('uninstallHooks removes only the hooks installHooks added', () => {
     { matcher: 'Bash', hooks: [{ type: 'command', command: 'node other.js' }] },
   ]);
   assert.strictEqual(result.hooks.SessionStart, undefined);
+  assert.strictEqual(result.hooks.UserPromptSubmit, undefined);
+  assert.strictEqual(result.hooks.SessionEnd, undefined);
 
   fs.rmSync(dir, { recursive: true, force: true });
 });

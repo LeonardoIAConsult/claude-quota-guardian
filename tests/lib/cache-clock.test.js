@@ -52,6 +52,33 @@ test('status: a timestamp in the future (clock skew) never exceeds the ttl', () 
   assert.strictEqual(clock.cacheStatus({ lastMs: NOW + 10 * MIN, ttlMinutes: 5, now: NOW }).minutesLeft, 5);
 });
 
+test('sessionLastActivity: a stored time wins over any mtime; the mtime is only the fallback', () => {
+  const stored = new Date(NOW - 30 * MIN).toISOString();
+  assert.strictEqual(clock.sessionLastActivity({ lastActivityAt: stored }, NOW - 1 * MIN), NOW - 30 * MIN);
+  assert.strictEqual(clock.sessionLastActivity({ lastActivityAt: stored }, null), NOW - 30 * MIN);
+  assert.strictEqual(clock.sessionLastActivity({}, NOW - 1 * MIN), NOW - 1 * MIN);
+  assert.strictEqual(clock.sessionLastActivity(null, NOW - 1 * MIN), NOW - 1 * MIN);
+  assert.strictEqual(clock.sessionLastActivity({ lastActivityAt: 'junk' }, NOW - 2 * MIN), NOW - 2 * MIN);
+  assert.strictEqual(clock.sessionLastActivity({}, null), null);
+});
+
+test('sessionView: top-level fields for the session that wrote last, its map entry otherwise, null for a stranger', () => {
+  const state = {
+    sessionId: 'a',
+    lastActivityAt: 'A-TIME',
+    subscriptionSessions: ['b'],
+    cacheSessions: { b: { lastActivityAt: 'B-TIME', subscription: true, transcriptPath: 'b.jsonl' } },
+  };
+  assert.strictEqual(clock.sessionView(state, 'a'), state);
+  const b = clock.sessionView(state, 'b');
+  assert.strictEqual(b.lastActivityAt, 'B-TIME');
+  assert.strictEqual(b.transcriptPath, 'b.jsonl');
+  assert.strictEqual(clock.sessionSubscription(b), true);
+  assert.strictEqual(clock.sessionView(state, 'c'), null);
+  assert.strictEqual(clock.sessionView(null, 'a'), null);
+  assert.strictEqual(clock.sessionView(state, ''), null);
+});
+
 test('lastActivityMs reads the transcript mtime and is null when missing', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cqg-clock-'));
   const file = path.join(dir, 't.jsonl');
