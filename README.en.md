@@ -79,7 +79,7 @@ The bar and the extension speak Spanish today, like Guardian's other messages.
 
 `extension/` contains a **Manifest V3** extension (Chrome/Edge/Brave) to **watch your usage live** without opening Settings:
 
-- **Toolbar badge**: the % of the most-pressing window with its letter in front, `5h` for the session and `S` for the weekly (`S70` = weekly at 70%), colored green/orange/red by how close it is to the cap. Hover it to see every window, when each one resets and the time of the reading. Refreshed in the background.
+- **Toolbar badge**: the % of the most-pressing window (`72%`), colored green/orange/red by how close it is to the cap. Hover it to see which window that number is, every window, when each one resets and the time of the reading. Refreshed in the background.
 - **If claude.ai fails for a moment**, you keep the number: the last good reading stays, greyed out, marked as not updated. If you signed out, it is cleared and the badge shows `!`. A window that already reset does not show its old %.
 - **Popup**: Session (5h) and Weekly as the main bars; per-model limits (Fable, etc.) as advisory; a reset countdown for each window.
 - **Dollar credits** (e.g. the promotional credit for cloud sessions): used, remaining and expiry. Informational only: never in the badge or the block. From the terminal: `node scripts/credits.js`.
