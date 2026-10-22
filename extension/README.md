@@ -4,7 +4,7 @@ Extensión de navegador (Chrome/Edge/Brave, Manifest V3) para **ver en vivo tu c
 
 ## Qué muestra
 
-- **Insignia (badge)** en el icono de la barra: el porcentaje de la ventana más apretada con su letra (`5h` sesión, `S` semanal), con color verde / naranja / rojo según cercanía al tope. Al pasar el ratón muestra todas las ventanas y la hora del dato. Se actualiza en segundo plano cada ~2 min; si una lectura falla, queda el último dato en gris.
+- **Insignia (badge)** en el icono de la barra: el porcentaje de la ventana más apretada (`72%`), con color verde / naranja / rojo según cercanía al tope. Al pasar el ratón dice qué ventana es ese número y muestra todas, con la hora del dato. Se actualiza en segundo plano cada ~2 min; si una lectura falla, queda el último dato en gris.
 - **Popup** al hacer clic:
   - **Sesión** (5h) y **Semanal** — las ventanas que gatean todo (barras principales).
   - **Por modelo** (Fable, etc.) — solo informativo (esos límites afectan a un modelo, no a todo).

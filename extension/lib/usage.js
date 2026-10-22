@@ -185,12 +185,13 @@
     return `reinicia en ${Math.round(hrs / 24)} d`;
   }
 
-  // The toolbar badge: which window, its %, and in the tooltip the whole
-  // picture, so the number means something without opening the popup.
+  // The toolbar badge: the % of the most-pressing window, and in the tooltip
+  // the whole picture (which window, every %, resets, reading time). Only
+  // digits and "%" in the badge: at that size a letter prefix reads as a digit
+  // ("S72" looked like "572").
   //   good:  last successful reading (or null if there never was one)
   //   error: reason of the latest failed refresh, null if the latest worked
-  // Returns { text, color, title }. Text is at most 4 characters (Chrome's cap).
-  const BADGE_PREFIX = { session: '5h', weekly_all: 'S' };
+  // Returns { text, color, title }. Text is at most 4 characters (Chrome's cap): "100%".
   const GREY = '#6b6b6b';
 
   function badgeFor(good, error, now) {
@@ -205,14 +206,13 @@
     for (const w of good.scoped || []) parts.push(`${w.label} ${Math.round(w.pct)} %`);
     const stamp = good.fetchedAt ? `actualizado ${shortTime(good.fetchedAt)}` : '';
     const stale = error ? ` · sin actualizar: ${reasonText(error)}` : '';
-    const title = `Guardian · ${parts.join(' · ')}${stamp ? ` · ${stamp}` : ''}${stale}`;
-    if (!live.length) return { text: '…', color: GREY, title };
-    const top = live.reduce((a, b) => (b.pct > a.pct ? b : a));
-    const p = Math.round(top.pct);
-    const prefix = Object.hasOwn(BADGE_PREFIX, top.kind) ? BADGE_PREFIX[top.kind] : '';
-    const text = `${prefix}${p >= 100 ? '!' : p}`.slice(0, 4);
+    const top = live.length ? live.reduce((a, b) => (b.pct > a.pct ? b : a)) : null;
+    const lead = top ? `el número es ${top.label}` : 'todas reiniciadas';
+    const title = `Guardian (${lead}) · ${parts.join(' · ')}${stamp ? ` · ${stamp}` : ''}${stale}`;
+    if (!top) return { text: '…', color: GREY, title };
+    const p = Math.min(100, Math.round(top.pct));
     const color = error ? GREY : p >= 90 ? '#c0392b' : p >= 70 ? '#e67e22' : '#2d7d46';
-    return { text, color, title };
+    return { text: `${p}%`, color, title };
   }
 
   const REASON_TEXT = {

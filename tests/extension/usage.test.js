@@ -35,22 +35,26 @@ async function withFetch(routes, fn) {
   }
 }
 
-test('badge says which window the number is, and the tooltip carries every window', () => {
+test('badge is the plain % of the most-pressing window; the tooltip says which window it is', () => {
   const b = U.badgeFor(reading(), null, NOW);
-  assert.strictEqual(b.text, 'S70');
+  assert.strictEqual(b.text, '70%');
+  assert.match(b.title, /el número es Semanal/);
   assert.match(b.title, /Semanal 70 %/);
   assert.match(b.title, /Sesión 2 %/);
   assert.match(b.title, /Fable 0 %/);
-  assert.ok(b.text.length <= 4);
 });
 
-test('badge for the 5-hour window is prefixed 5h and fits in 4 characters at 100 %', () => {
+test('badge holds only digits and "%" (a letter prefix read as a digit: "S72" looked like "572")', () => {
   const r = reading();
-  r.blocking[0].pct = 85;
-  r.blocking[1].pct = 10;
-  assert.strictEqual(U.badgeFor(r, null, NOW).text, '5h85');
-  r.blocking[0].pct = 100;
-  assert.strictEqual(U.badgeFor(r, null, NOW).text, '5h!');
+  for (const [session, weekly] of [[85, 10], [2, 72], [100, 30], [130, 0]]) {
+    r.blocking[0].pct = session;
+    r.blocking[1].pct = weekly;
+    const { text } = U.badgeFor(r, null, NOW);
+    assert.match(text, /^\d{1,3}%$/, text);
+    assert.ok(text.length <= 4, text);
+  }
+  r.blocking[0].pct = 130;
+  assert.strictEqual(U.badgeFor(r, null, NOW).text, '100%');
 });
 
 test('a window whose reset passed does not drive the badge with its old %', () => {
@@ -58,14 +62,15 @@ test('a window whose reset passed does not drive the badge with its old %', () =
   r.blocking[1].pct = 95;
   r.blocking[1].resetAt = new Date(NOW - 60000).toISOString();
   const b = U.badgeFor(r, null, NOW);
-  assert.strictEqual(b.text, '5h2');
+  assert.strictEqual(b.text, '2%');
+  assert.match(b.title, /el número es Sesión/);
   assert.match(b.title, /Semanal: reiniciada/);
   assert.ok(!b.title.includes('95'));
 });
 
 test('a failed refresh keeps the last good number, grey, and says why in the tooltip', () => {
   const b = U.badgeFor(reading(), 'http-429', NOW);
-  assert.strictEqual(b.text, 'S70');
+  assert.strictEqual(b.text, '70%');
   assert.strictEqual(b.color, '#6b6b6b');
   assert.match(b.title, /sin actualizar/);
   assert.match(b.title, /429/);

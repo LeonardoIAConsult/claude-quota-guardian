@@ -121,6 +121,8 @@ All three read one rule, `lib/cache-clock.js` (B carries a copy in TypeScript: h
   - The transcript mtime also moves on metadata-only writes (away summary, a reopened Desktop
     session), so a few minutes can be added. Kept on purpose: it is what makes the countdown move
     live during a turn (1.1.1 rule, with its test). Fix only with a signal that is still stat-only.
+  - Badge defence in depth (1.1.6 review): `Math.max(0, Math.min(100, Math.round(pct) || 0))` in
+    `badgeFor`, unreachable today (`clampPct` already filters), and a test for the "…" tooltip.
   - Two sessions working in the same folder share one `state.json`; the last writer wins and the
     other can drop off the list. Not seen in live data. Fix: a small per-session map in the state.
 

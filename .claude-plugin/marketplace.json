@@ -13,7 +13,7 @@
       "name": "quota-guardian",
       "source": "./",
       "description": "Watches your real Claude account quota (5h session, weekly, per-model) and forces a resumable checkpoint right before the cutoff, so the next session continues with almost no tokens.",
-      "version": "1.1.5",
+      "version": "1.1.6",
       "author": {
         "name": "Leonardo Antolinez",
         "url": "https://www.leonardoantolinez.com"
@@ -32,7 +32,7 @@
       "name": "quota-guardian-bar",
       "source": "./bar",
       "description": "Live prompt-cache countdown above the prompt, with context size, 5h and weekly quota, and a one-click handoff through /continuity-checkpoint. Install together with quota-guardian.",
-      "version": "1.1.5",
+      "version": "1.1.6",
       "author": {
         "name": "Leonardo Antolinez",
         "url": "https://www.leonardoantolinez.com"

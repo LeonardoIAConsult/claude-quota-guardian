@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.1.6 — 2026-10-22
+
+### Fixed
+- Extension badge: 1.1.5 put a letter before the number (`S72` for the weekly at 72%), and at
+  badge size the "S" reads as a 5: it looked like "572%". The badge now holds only the number and
+  "%" (`72%`); which window it is moves to the tooltip, first thing: "el número es Semanal".
+
+### Tests
+- The badge test checks every combination holds only digits and "%". 393 in all: 369 with
+  `npm test` and 24 for the bar.
+
 ## 1.1.5 — 2026-10-22
 
 ### Fixed
