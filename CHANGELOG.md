@@ -1,5 +1,30 @@
 # Changelog
 
+## 1.1.5 — 2026-10-22
+
+### Fixed
+- Extension badge: the number now says which window it is (`5h2` = 5-hour session at 2%, `S70` =
+  weekly at 70%), and hovering it lists every window, when each resets and the time of the
+  reading. Before, it showed the weekly 70 with no label and read as the 5-hour usage.
+- A failed read (no network, a 429, a 5xx) no longer wipes the last good reading: the badge keeps
+  it in grey and the popup shows it with "Sin actualizar". Signing out clears it and the badge
+  shows `!` with the reason, instead of going blank.
+- A 429 or 5xx from claude.ai is reported as a Claude error, not as "Inicia sesión".
+- Requests to claude.ai give up after 10 s, so the popup no longer spins forever; the alarm, the
+  popup and the refresh button share one request.
+- A quota window whose reset time passed shows "reiniciada" in the popup, the badge and the
+  bar above the prompt, never its old %. On the hooks side every window is checked, not only
+  the top one, a reading with a reset window is refetched right away, and a stored reading
+  older than one hour is no longer served as current after a failed fetch or during backoff.
+- Extension cache list: two sessions started in the same folder showed identical rows (two
+  "Inicio (~)"). Each now adds the folder it works in, or a number when that matches too.
+- Bar: percentages are whole numbers, like `/usage`, and the context reads `Contexto 150k (15%
+  lleno)` so it is not taken for quota.
+
+### Tests
+- New `tests/extension/usage.test.js` for the extension's badge, error and timeout logic.
+  393 in all: 369 with `npm test` and 24 for the bar.
+
 ## 1.1.4 — 2026-10-20
 
 ### Fixed

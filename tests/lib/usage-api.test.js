@@ -509,3 +509,119 @@ test('getThrottledUsage does not adopt a newer reading stored meanwhile if its w
   const result = usageApi.getThrottledUsage({ cacheSeconds: 60, cachedApi: null, nowMs });
   assert.strictEqual(result.available, false);
 });
+
+// A stored reading whose top window (weekly 70%) is still live but whose
+// session window (95%) already reset.
+function sessionRolledReading(nowMs, ageMs) {
+  const session = { kind: 'session', label: 'Sesión', pct: 95, resetAt: new Date(nowMs - 1000).toISOString(), blocking: true, model: null };
+  const weekly = { kind: 'weekly_all', label: 'Semanal', pct: 70, resetAt: new Date(nowMs + 86_400_000).toISOString(), blocking: true, model: null };
+  return {
+    pct: 95,
+    resetAt: session.resetAt,
+    topWindow: session,
+    fiveHour: { pct: 95, resetAt: session.resetAt },
+    sevenDay: { pct: 70, resetAt: weekly.resetAt },
+    windows: [session, weekly],
+    scoped: [],
+    fetchedAt: new Date(nowMs - ageMs).toISOString(),
+  };
+}
+
+test('getThrottledUsage drops a reset session window even when the weekly is still live', (t) => {
+  withHome(t, validCreds());
+  t.mock.method(cp, 'execFileSync', () => { throw new Error('offline'); });
+
+  const nowMs = Date.now();
+  const cachedApi = sessionRolledReading(nowMs, 600_000);
+  const result = usageApi.getThrottledUsage({ cacheSeconds: 60, cachedApi, nowMs });
+
+  assert.strictEqual(result.available, true);
+  assert.deepStrictEqual(result.windows.map((w) => w.label), ['Semanal']);
+  assert.strictEqual(result.pct, 70);
+  assert.strictEqual(result.topWindow.label, 'Semanal');
+  assert.strictEqual(result.fiveHour, null);
+});
+
+test('getThrottledUsage refetches a fresh-by-age reading as soon as one of its windows reset', (t) => {
+  withHome(t, validCreds());
+  let calls = 0;
+  t.mock.method(cp, 'execFileSync', () => {
+    calls += 1;
+    return JSON.stringify({ data: { limits: [
+      { kind: 'session', percent: 3, resets_at: new Date(Date.now() + 5 * 3600_000).toISOString(), scope: null },
+      { kind: 'weekly_all', percent: 70, resets_at: new Date(Date.now() + 86_400_000).toISOString(), scope: null },
+    ] } });
+  });
+
+  const nowMs = Date.now();
+  const cachedApi = sessionRolledReading(nowMs, 5_000);
+  const result = usageApi.getThrottledUsage({ cacheSeconds: 60, cachedApi, nowMs });
+
+  assert.strictEqual(calls, 1);
+  assert.deepStrictEqual(result.windows.map((w) => [w.label, w.pct]), [['Sesión', 3], ['Semanal', 70]]);
+});
+
+test('getThrottledUsage drops a flat fiveHour that reset even when windows[] did not', (t) => {
+  withHome(t, validCreds());
+  t.mock.method(cp, 'execFileSync', () => { throw new Error('offline'); });
+
+  const nowMs = Date.now();
+  const cachedApi = sessionRolledReading(nowMs, 600_000);
+  cachedApi.windows[0].resetAt = new Date(nowMs + 3600_000).toISOString();
+  cachedApi.topWindow = cachedApi.windows[0];
+  cachedApi.resetAt = cachedApi.windows[0].resetAt;
+  const result = usageApi.getThrottledUsage({ cacheSeconds: 60, cachedApi, nowMs });
+
+  assert.strictEqual(result.available, true);
+  assert.strictEqual(result.fiveHour, null);
+});
+
+test('getThrottledUsage stops serving a failed-fetch fallback older than the freshness window', (t) => {
+  withHome(t, validCreds());
+  t.mock.method(cp, 'execFileSync', () => JSON.stringify({ error: 'http-401' }));
+
+  const nowMs = Date.now();
+  const cachedApi = {
+    pct: 88,
+    resetAt: new Date(nowMs + 3600_000).toISOString(),
+    fetchedAt: new Date(nowMs - 7 * 3600_000).toISOString(),
+  };
+  const result = usageApi.getThrottledUsage({ cacheSeconds: 60, cachedApi, nowMs });
+
+  assert.strictEqual(result.available, false);
+});
+
+test('getThrottledUsage stops serving an old reading during backoff', (t) => {
+  withHome(t, validCreds());
+  t.mock.method(cp, 'execFileSync', () => { throw new Error('must not fetch'); });
+  const nowMs = Date.now();
+  writeSharedFile({
+    reading: {
+      pct: 88,
+      resetAt: new Date(nowMs + 3600_000).toISOString(),
+      fetchedAt: new Date(nowMs - 7 * 3600_000).toISOString(),
+    },
+    failures: 3,
+    backoffUntil: nowMs + 300_000,
+  });
+
+  const result = usageApi.getThrottledUsage({ cacheSeconds: 60, cachedApi: null, nowMs });
+  assert.strictEqual(result.available, false);
+  assert.strictEqual(result.reason, 'backoff');
+});
+
+test('getThrottledUsage keeps the throttle when the server itself answered with a reset time already past', (t) => {
+  withHome(t, validCreds());
+  let calls = 0;
+  t.mock.method(cp, 'execFileSync', () => { calls += 1; throw new Error('must not fetch'); });
+
+  const nowMs = Date.now();
+  // fetched 5 s ago, and the session reset 10 s ago: the server already knew
+  const cachedApi = sessionRolledReading(nowMs, 5_000);
+  for (const w of [cachedApi.windows[0], cachedApi.topWindow, cachedApi.fiveHour]) w.resetAt = new Date(nowMs - 10_000).toISOString();
+  cachedApi.resetAt = cachedApi.windows[0].resetAt;
+  const result = usageApi.getThrottledUsage({ cacheSeconds: 60, cachedApi, nowMs });
+
+  assert.strictEqual(calls, 0);
+  assert.deepStrictEqual(result.windows.map((w) => w.label), ['Semanal']);
+});

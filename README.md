@@ -77,7 +77,8 @@ La idea me llegó de un "kit de ahorro de tokens" que circulaba como artifact. L
 
 En `extension/` hay una extensión **Manifest V3** (Chrome/Edge/Brave) para **ver tu consumo en vivo** sin abrir Ajustes:
 
-- **Insignia (badge)** en la barra: el % de la ventana más apretada (sesión o semanal), en verde/naranja/rojo según cercanía al tope. Se actualiza en segundo plano.
+- **Insignia (badge)** en la barra: el % de la ventana más apretada con su letra delante, `5h` para la sesión y `S` para la semanal (`S70` = semanal al 70 %), en verde/naranja/rojo según cercanía al tope. Al pasar el ratón ves todas las ventanas, cuándo reinicia cada una y la hora del dato. Se actualiza en segundo plano.
+- **Si claude.ai falla un momento**, no pierdes el número: queda el último dato bueno en gris, con el aviso de que no está actualizado. Si cerraste sesión, el número se borra y el ícono muestra `!`. Una ventana que ya reinició no muestra su % viejo.
 - **Popup**: Sesión (5h) y Semanal como barras principales; los límites por modelo (Fable, etc.) como aviso; cuenta regresiva de reinicio de cada ventana.
 - **Créditos en dólares** (por ejemplo, el crédito promocional para sesiones en la nube): cuánto usaste, cuánto te queda y cuándo vence. Es solo informativo: no cuenta para la insignia ni para el bloqueo. Desde la terminal: `node scripts/credits.js`.
 - **Caché de Claude Code**: cuánto le queda al caché de cada sesión de Claude Code que lo tiene vivo, en verde, y naranja cuando quedan 5 minutos o menos. Cuando venció, la sesión sale de la lista.
@@ -102,7 +103,7 @@ Instalar: `chrome://extensions` → Modo desarrollador → **Cargar descomprimid
 - **Funciona para cualquier plan y cualquier OS**: detecta solo la cuota de quien lo instale (Pro/Max/Team) leyendo el token OAuth de Claude Code — archivo en Windows/Linux, **Keychain en macOS**.
 - **Monitor visual**: extensión de navegador con badge + popup + caché de cada sesión (arriba).
 - **Instalación de 1 comando, desinstalación limpia**: mergea sus hooks en `settings.json` sin tocar los tuyos; el uninstaller solo quita lo suyo.
-- **373 tests**: 351 con `npm test`, que corren en CI en Windows, macOS y Linux sobre Node 18 y 20, y 22 de la barra con `claude plugin test bar`.
+- **393 tests**: 369 con `npm test`, que corren en CI en Windows, macOS y Linux sobre Node 18 y 20, y 24 de la barra con `claude plugin test bar`.
 - **Extensible a otros proveedores de IA**: arquitectura de adaptadores; hoy incluye monitoreo notify-only de **OpenAI Codex CLI**.
 
 ## ¿Para quién es?

@@ -113,6 +113,17 @@ All three read one rule, `lib/cache-clock.js` (B carries a copy in TypeScript: h
   - ~~The legacy cleanup sits inside the `try`: a locked `.cmd` would report the host install
     as failed although the registry is already right.~~ done in 1.1.1
 
+- 1.1.5 investigation (extension "not real data"), left open on purpose:
+  - A routine that already finished (scheduled task, `claude -p`) still shows its live cache with
+    "Envía un mensaje para mantenerlo". No public signal tells it apart from an open session:
+    `~/.claude/sessions` is an undocumented internal format, and the scheduled-task marker also
+    shows up in ordinary transcripts.
+  - The transcript mtime also moves on metadata-only writes (away summary, a reopened Desktop
+    session), so a few minutes can be added. Kept on purpose: it is what makes the countdown move
+    live during a turn (1.1.1 rule, with its test). Fix only with a signal that is still stat-only.
+  - Two sessions working in the same folder share one `state.json`; the last writer wins and the
+    other can drop off the list. Not seen in live data. Fix: a small per-session map in the state.
+
 ## Fixed after external review (2026-10-19)
 
 - The native host's launcher and manifest live in `~/.claude/quota-guardian-native-host`, outside

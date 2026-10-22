@@ -12,6 +12,14 @@
 // (importScripts) can use it.
 (function (root) {
   const CLAUDE = 'https://claude.ai';
+  // claude.ai can hang; without a limit the popup spins forever on "Cargando…".
+  const FETCH_TIMEOUT_MS = 10000;
+
+  function get(url) {
+    const opts = { credentials: 'include' };
+    if (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) opts.signal = AbortSignal.timeout(FETCH_TIMEOUT_MS);
+    return fetch(url, opts);
+  }
 
   function clampPct(x) {
     if (typeof x !== 'number' || !Number.isFinite(x)) return null;
@@ -24,8 +32,12 @@
   // multiple orgs (e.g. a Team org + personal) where the consuming org may not
   // advertise a 'chat' capability.
   async function getOrgIds() {
-    const orgs = await fetch(`${CLAUDE}/api/organizations`, { credentials: 'include' })
-      .then((r) => (r.ok ? r.json() : null));
+    const res = await get(`${CLAUDE}/api/organizations`);
+    // Only 401/403 mean "signed out"; a 429 or 5xx is Claude failing, and saying
+    // "inicia sesión" to someone already signed in sends them the wrong way.
+    if (res.status === 401 || res.status === 403) return [];
+    if (!res.ok) throw Object.assign(new Error('http'), { reason: 'http-' + res.status });
+    const orgs = await res.json();
     if (!Array.isArray(orgs) || !orgs.length) return [];
     const chat = orgs
       .filter((o) => o && o.uuid && Array.isArray(o.capabilities) && o.capabilities.includes('chat'))
@@ -108,8 +120,8 @@
     let ids;
     try {
       ids = await getOrgIds();
-    } catch {
-      return { ok: false, reason: 'network' };
+    } catch (e) {
+      return { ok: false, reason: (e && e.reason) || 'network' };
     }
     if (!ids.length) return { ok: false, reason: 'not-logged-in' };
 
@@ -118,7 +130,7 @@
     for (const orgId of ids) {
       let res;
       try {
-        res = await fetch(`${CLAUDE}/api/organizations/${orgId}/usage`, { credentials: 'include' });
+        res = await get(`${CLAUDE}/api/organizations/${orgId}/usage`);
       } catch {
         lastReason = 'network';
         continue;
@@ -141,11 +153,85 @@
       const scoped = windows.filter((w) => !w.blocking);
       // null (not 0) when there is no account-wide window, so the badge can tell
       // "no gating data" apart from a genuine 0%.
-      const topPct = blocking.length ? blocking.reduce((a, b) => (b.pct > a.pct ? b : a)).pct : null;
-      return { ok: true, windows, blocking, scoped, credits: creditsFrom(raw), topPct, orgId, fetchedAt: Date.now() };
+      const top = blocking.length ? blocking.reduce((a, b) => (b.pct > a.pct ? b : a)) : null;
+      return {
+        ok: true, windows, blocking, scoped, credits: creditsFrom(raw),
+        topPct: top ? top.pct : null, topKind: top ? top.kind : null, orgId, fetchedAt: Date.now(),
+      };
     }
     return { ok: false, reason: lastReason };
   }
 
-  root.GuardianUsage = { fetchUsage, getOrgId, getOrgIds, windowsFrom, creditsFrom, clampPct };
+  // A window whose reset time already passed no longer holds its old % -- the
+  // next reading brings the new one. Showing the old % as current is the lie.
+  function isRolledOver(w, now) {
+    const t = w && w.resetAt ? Date.parse(w.resetAt) : NaN;
+    return Number.isFinite(t) && t <= now;
+  }
+
+  function shortTime(ts) {
+    const d = new Date(ts);
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  }
+
+  function fmtLeft(iso, now) {
+    const t = Date.parse(iso);
+    if (!Number.isFinite(t)) return '';
+    const mins = Math.round((t - now) / 60000);
+    if (mins <= 0) return 'reiniciada';
+    if (mins < 60) return `reinicia en ${mins} min`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `reinicia en ${hrs} h ${mins % 60} min`;
+    return `reinicia en ${Math.round(hrs / 24)} d`;
+  }
+
+  // The toolbar badge: which window, its %, and in the tooltip the whole
+  // picture, so the number means something without opening the popup.
+  //   good:  last successful reading (or null if there never was one)
+  //   error: reason of the latest failed refresh, null if the latest worked
+  // Returns { text, color, title }. Text is at most 4 characters (Chrome's cap).
+  const BADGE_PREFIX = { session: '5h', weekly_all: 'S' };
+  const GREY = '#6b6b6b';
+
+  function badgeFor(good, error, now) {
+    const t = now || Date.now();
+    if (!good || !good.ok || !Array.isArray(good.blocking) || !good.blocking.length) {
+      return { text: error ? '!' : '', color: GREY, title: `Guardian: ${reasonText(error || 'no-windows')}` };
+    }
+    const live = good.blocking.filter((w) => !isRolledOver(w, t));
+    const parts = good.blocking.map((w) => (isRolledOver(w, t)
+      ? `${w.label}: reiniciada, actualizando…`
+      : `${w.label} ${Math.round(w.pct)} %${w.resetAt ? ` (${fmtLeft(w.resetAt, t)})` : ''}`));
+    for (const w of good.scoped || []) parts.push(`${w.label} ${Math.round(w.pct)} %`);
+    const stamp = good.fetchedAt ? `actualizado ${shortTime(good.fetchedAt)}` : '';
+    const stale = error ? ` · sin actualizar: ${reasonText(error)}` : '';
+    const title = `Guardian · ${parts.join(' · ')}${stamp ? ` · ${stamp}` : ''}${stale}`;
+    if (!live.length) return { text: '…', color: GREY, title };
+    const top = live.reduce((a, b) => (b.pct > a.pct ? b : a));
+    const p = Math.round(top.pct);
+    const prefix = Object.hasOwn(BADGE_PREFIX, top.kind) ? BADGE_PREFIX[top.kind] : '';
+    const text = `${prefix}${p >= 100 ? '!' : p}`.slice(0, 4);
+    const color = error ? GREY : p >= 90 ? '#c0392b' : p >= 70 ? '#e67e22' : '#2d7d46';
+    return { text, color, title };
+  }
+
+  const REASON_TEXT = {
+    'not-logged-in': 'Inicia sesión en claude.ai para ver tu consumo.',
+    'network': 'Sin conexión con claude.ai.',
+    'no-org': 'No se encontró tu cuenta.',
+    'no-windows': 'Claude no devolvió datos de cuota.',
+    'bad-json': 'Respuesta inesperada de Claude.',
+    'worker-error': 'No se pudo leer el consumo.',
+  };
+
+  function reasonText(reason) {
+    const r = reason || 'unknown';
+    if (Object.hasOwn(REASON_TEXT, r)) return REASON_TEXT[r];
+    return r.startsWith('http-') ? `Claude respondió con error (${r.slice(5)}).` : 'No se pudo leer el consumo.';
+  }
+
+  root.GuardianUsage = {
+    fetchUsage, getOrgId, getOrgIds, windowsFrom, creditsFrom, clampPct,
+    isRolledOver, badgeFor, reasonText, fmtLeft,
+  };
 })(typeof self !== 'undefined' ? self : globalThis);
