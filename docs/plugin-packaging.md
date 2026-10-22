@@ -15,7 +15,7 @@ Guardian ships **two install paths** from the same repo:
 /plugin install quota-guardian-bar --marketplace LeonardoIAConsult/claude-quota-guardian
 ```
 
-The first loads the four hooks and the `/continuity-checkpoint` command; the second (optional) adds the cache-countdown bar above the prompt (`bar/`, a hooks module). One-step install needs Claude Code 2.1.275 or later.
+The first loads the six hooks and the `/continuity-checkpoint` command; the second (optional) adds the cache-countdown bar above the prompt (`bar/`, a hooks module). One-step install needs Claude Code 2.1.275 or later.
 
 **Why the names changed (v1.1).** Claude Code reserves plugin names that start with `claude-` for Anthropic, and `claude plugin validate` rejects `claude-quota-guardian`. The plugins are now `quota-guardian` and `quota-guardian-bar`; the marketplace keeps its name. Earlier installs: `/plugin uninstall claude-quota-guardian@claude-quota-guardian`, then the lines above.
 
@@ -23,11 +23,13 @@ The first loads the four hooks and the `/continuity-checkpoint` command; the sec
 
 - `.claude-plugin/plugin.json` — plugin manifest (name, description, version, author, homepage, repo, MIT).
 - `.claude-plugin/marketplace.json` — makes this repo its own marketplace (`source: "./"`), so anyone can `marketplace add` + `install` in two commands. Validated with `claude plugin validate .` (✔ passed).
-- `hooks/hooks.json` — the four hooks, path-portable via `${CLAUDE_PLUGIN_ROOT}`:
+- `hooks/hooks.json` — the six hooks, path-portable via `${CLAUDE_PLUGIN_ROOT}`:
   - `PreToolUse *` → `hooks/enforce-checkpoint.js`
   - `PostToolUse *` → `hooks/check-usage.js`
   - `Stop *` → `hooks/heartbeat-stop.js`
   - `SessionStart *` → `hooks/resume-context.js`
+  - `UserPromptSubmit *` → `hooks/prompt-submit.js` (stamps the cache activity; never blocks)
+  - `SessionEnd *` → `hooks/session-end.js` (marks the session ended; never blocks)
 - `commands/` (already present) → exposed namespaced: `/quota-guardian:continuity-checkpoint` (the short `/continuity-checkpoint` also resolves when unambiguous).
 
 ## Known trade-offs (plugin vs standalone)

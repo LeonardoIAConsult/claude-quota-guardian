@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const paths = require('../lib/paths');
 const { atomicWriteFileSync } = require('../lib/atomic-write');
+const { clearEnded } = require('../lib/cache-sessions');
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -49,6 +50,13 @@ function main() {
   const input = readStdin();
   if (!input || !input.cwd) {
     return;
+  }
+
+  // a reopened session is no longer ended; never lets the checkpoint resume below fail
+  try {
+    clearEnded(input);
+  } catch (err) {
+    log(`clearEnded ERROR ${err.stack}`);
   }
 
   const pendingFile = paths.pendingPath(input.cwd);

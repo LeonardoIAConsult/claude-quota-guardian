@@ -1,6 +1,6 @@
 {
   "name": "quota-guardian-bar",
-  "version": "1.1.6",
+  "version": "1.1.7",
   "description": "Live prompt-cache countdown above the prompt, with context size, 5h and weekly quota, and a one-click handoff through Claude Quota Guardian's /continuity-checkpoint.",
   "author": {
     "name": "Leonardo Antolinez",

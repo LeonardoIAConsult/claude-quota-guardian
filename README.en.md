@@ -105,7 +105,7 @@ Install: `chrome://extensions` → Developer mode → **Load unpacked** → the 
 - **Works on any plan and any OS**: auto-detects only the installing user's quota (Pro/Max/Team) by reading Claude Code's OAuth token — a file on Windows/Linux, the **Keychain on macOS**.
 - **Visual monitor**: browser extension with badge + popup (above).
 - **One-command install, clean uninstall**: merges its hooks into `settings.json` without touching yours; the uninstaller only removes its own.
-- **393 tests**: 369 with `npm test`, run in CI on Windows, macOS and Linux across Node 18 and 20, and 24 for the bar with `claude plugin test bar`.
+- **423 tests**: 397 with `npm test`, run in CI on Windows, macOS and Linux across Node 18 and 20, and 26 for the bar with `claude plugin test bar`.
 - **Extensible to other AI providers**: adapter architecture; ships with notify-only monitoring of **OpenAI Codex CLI** today.
 
 ## Who is it for?
@@ -138,7 +138,7 @@ Install: `chrome://extensions` → Developer mode → **Load unpacked** → the 
 /plugin install quota-guardian-bar --marketplace LeonardoIAConsult/claude-quota-guardian
 ```
 
-The first line loads the four hooks + the `/continuity-checkpoint` command: the core loop (detect → block → checkpoint → auto-resume). The second, optional, adds the cache-countdown bar above the prompt. It needs Claude Code 2.1.275 or later. The **quota-reset watcher** (notifies while Claude is closed) and the cache bridge for the extension are exclusive to Option B. Details: [docs/plugin-packaging.md](docs/plugin-packaging.md).
+The first line loads the six hooks + the `/continuity-checkpoint` command: the core loop (detect → block → checkpoint → auto-resume). The second, optional, adds the cache-countdown bar above the prompt. It needs Claude Code 2.1.275 or later. The **quota-reset watcher** (notifies while Claude is closed) and the cache bridge for the extension are exclusive to Option B. Details: [docs/plugin-packaging.md](docs/plugin-packaging.md).
 
 > If you installed it before as `claude-quota-guardian@claude-quota-guardian`: Claude Code no longer accepts third-party plugins whose name starts with `claude-`, so it is now called `quota-guardian`. Remove the old one with `/plugin uninstall claude-quota-guardian@claude-quota-guardian` and install with the line above.
 

@@ -104,7 +104,7 @@ test('collectCacheSessions: one entry per recent project, newest first, only nam
   fs.rmSync(root, { recursive: true, force: true });
 });
 
-test('collectCacheSessions: the transcript mtime beats an older stored lastActivityAt, path is never returned', () => {
+test('collectCacheSessions: the stored lastActivityAt beats a newer transcript mtime (rule changed on purpose: mtime is only a fallback), path is never returned', () => {
   const root = makeRoot();
   const transcript = path.join(root, 't.jsonl');
   fs.writeFileSync(transcript, '{}\n');
@@ -113,8 +113,23 @@ test('collectCacheSessions: the transcript mtime beats an older stored lastActiv
   writeState(root, 'aaa', { projectName: 'web', transcriptPath: transcript, apiUsage: { pct: 1 }, lastActivityAt: new Date(NOW - 30 * MIN).toISOString() });
 
   const [s] = host.collectCacheSessions({ config: DEFAULTS, now: NOW, root, oauthCredentialsPath: NO_CREDS });
-  assert.strictEqual(s.minutesLeft, 59);
+  // counted from the stored time (30 min ago), not from the mtime (1 min ago, which would give 59)
+  assert.strictEqual(s.minutesLeft, 30);
   assert.ok(!JSON.stringify(s).includes('t.jsonl'));
+
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('collectCacheSessions: with no stored lastActivityAt (a state from before the hooks stamped it) the transcript mtime is the fallback', () => {
+  const root = makeRoot();
+  const transcript = path.join(root, 't.jsonl');
+  fs.writeFileSync(transcript, '{}\n');
+  const recent = new Date(NOW - 1 * MIN);
+  fs.utimesSync(transcript, recent, recent);
+  writeState(root, 'aaa', { projectName: 'web', transcriptPath: transcript, apiUsage: { pct: 1 } });
+
+  const [s] = host.collectCacheSessions({ config: DEFAULTS, now: NOW, root, oauthCredentialsPath: NO_CREDS });
+  assert.strictEqual(s.minutesLeft, 59);
 
   fs.rmSync(root, { recursive: true, force: true });
 });

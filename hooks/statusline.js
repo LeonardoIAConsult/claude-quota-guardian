@@ -13,6 +13,7 @@ const {
   resolveWarnMinutes,
   sessionLastActivity,
   sessionSubscription,
+  sessionView,
   withProvenSession,
 } = require('../lib/cache-clock');
 
@@ -50,7 +51,10 @@ function cacheRateLimit(cwd, rateLimits, sessionId, prevState) {
 
   try {
     const statePath = paths.statePath(cwd);
-    const prev = prevState || {};
+    // Read again right before the write: the state read at startup may be older
+    // than another session's hook write (its cacheSessions entry, an endedAt),
+    // and writing it back would undo that.
+    const prev = readJsonSafe(statePath) || prevState || {};
     // The line re-renders every refreshInterval while the session is idle; a
     // write with nothing new would keep updatedAt fresh and the watcher would
     // never see this session go quiet (it ramps down on stale updatedAt).
@@ -105,13 +109,13 @@ function renderLine(input, cacheConfig, state) {
 // Same answers as the host and the bar: lib/cache-clock.js
 // sessionLastActivity, and rate_limits in this payload (the proof itself) or
 // the session's subscription in state.json. A state.json last written by
-// another session in this folder is not this session's answer.
+// another session in this folder is read through that session's own entry.
 function cacheSegment(input, cacheConfig, state, now = Date.now()) {
   if (!cacheConfig || cacheConfig.enabled === false) return null;
-  const own = state && input.session_id && state.sessionId === input.session_id ? state : null;
+  const own = sessionView(state, input.session_id);
   const subscription = sessionSubscription(own, { rateLimitsNow: Boolean(input.rate_limits) }) === true;
   const status = cacheStatus({
-    lastMs: sessionLastActivity(own, lastActivityMs(input.transcript_path)),
+    lastMs: sessionLastActivity(own, () => lastActivityMs(input.transcript_path)),
     ttlMinutes: resolveTtlMinutes(cacheConfig, { hasRateLimits: subscription }),
     warnMinutes: resolveWarnMinutes(cacheConfig),
     now,

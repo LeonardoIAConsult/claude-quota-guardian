@@ -6,8 +6,8 @@ import type { Shared } from '../types'
 // (lib/threshold-check.js, hooks/statusline.js): when the conversation last
 // used the cache and whether it runs on a subscription. The status line and
 // the browser extension compute the same two things from the same fields
-// (lib/cache-clock.js sessionLastActivity and sessionSubscription), so all
-// three show the same minutes.
+// (lib/cache-clock.js sessionLastActivity, sessionView and sessionSubscription),
+// so all three show the same minutes.
 
 // The working directory as Node's path.resolve spells an absolute one, which
 // is what lib/paths.js hashes: Windows separators, no trailing separator.
@@ -55,8 +55,32 @@ export async function currentFolder($: EngineInterface): Promise<string> {
   return hash
 }
 
+// The state.json fields that are THIS session's: the top-level ones when it
+// wrote last, else its entry in the per-session map (two sessions in one
+// folder share the file). lib/cache-clock.js sessionView mirrors it: change
+// both together. Null when Guardian has nothing for the session.
+export function sessionView(state: any, sessionId: string): any {
+  if (state?.sessionId === sessionId) {
+    return state
+  }
+
+  const entry = state?.cacheSessions?.[sessionId]
+
+  if (entry === null || typeof entry !== 'object') {
+    return null
+  }
+
+  return {
+    sessionId,
+    transcriptPath: entry.transcriptPath,
+    lastActivityAt: entry.lastActivityAt,
+    subscription: entry.subscription,
+    subscriptionSessions: state.subscriptionSessions,
+  }
+}
+
 // Null when Guardian has not written this session's state yet (before its
-// first hook, right after /clear) or the folder holds another session's.
+// first hook, right after /clear).
 export async function readShared($: EngineInterface, root: string | undefined): Promise<Shared | null> {
   if (root === undefined) {
     return null
@@ -65,25 +89,25 @@ export async function readShared($: EngineInterface, root: string | undefined): 
   try {
     const folder = await currentFolder($)
     const sessionId = await $.session.id()
-    const state = JSON.parse(await $.fs.read(`${root}/${folder}/state.json`))
+    const state = sessionView(JSON.parse(await $.fs.read(`${root}/${folder}/state.json`)), sessionId)
 
-    if (state?.sessionId !== sessionId) {
+    if (state === null) {
       return null
     }
 
-    // the newer of what the hooks stored and the transcript's mtime now
+    // what a hook stored; the transcript's mtime only when nothing is stored
+    // (a state from before hooks stamped it)
     const stored = Date.parse(state.lastActivityAt)
-    let transcript = 0
+    let last = Number.isNaN(stored) ? 0 : stored
 
-    if (typeof state.transcriptPath === 'string' && state.transcriptPath !== '') {
+    if (last <= 0 && typeof state.transcriptPath === 'string' && state.transcriptPath !== '') {
       try {
-        transcript = (await $.fs.stat(state.transcriptPath)).mtimeMs
+        last = (await $.fs.stat(state.transcriptPath)).mtimeMs
       } catch {
-        transcript = 0
+        last = 0
       }
     }
 
-    const last = Math.max(Number.isNaN(stored) ? 0 : stored, transcript)
     const proven = Array.isArray(state.subscriptionSessions) && state.subscriptionSessions.includes(sessionId)
 
     return {
