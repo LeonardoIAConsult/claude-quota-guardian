@@ -469,3 +469,46 @@ test("another project's fresh checkpoint never offers Limpiar y seguir here", as
   expect(await ui.find({ key: 'clear' })).toBeUndefined()
   await ui.unmount()
 })
+
+async function barText($: Engine, rateLimits: { kind: string; percentUsed: number; resetsAt?: string }[]): Promise<string> {
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.session.measure({
+    context: { tokens: 150_000, window: 1_000_000, percent: 15.4 },
+    rateLimits,
+    changed: [],
+  })
+  await $.turn.complete({ answer: 'ok', durationMs: 1, isAborted: false, turnId: 't1', reason: 'answer' })
+
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  const text = (await ui.find({ type: 'Text', text: /Contexto/ }))?.text ?? ''
+  await ui.unmount()
+
+  return text
+}
+
+test('a window that already reset stops showing its old percent', async ($, on) => {
+  engine(on, { pending: null, ran: [] })
+  const past = new Date(Date.now() - 60_000).toISOString()
+  const future = new Date(Date.now() + 3_600_000).toISOString()
+  const text = await barText($, [
+    { kind: 'five_hour', percentUsed: 95, resetsAt: past },
+    { kind: 'seven_day', percentUsed: 70, resetsAt: future },
+  ])
+
+  expect(text).toContain('5 h —')
+  expect(text).not.toContain('95%')
+  expect(text).toContain('Semana 70%')
+})
+
+test('the windows show whole percents and the context is not mistaken for quota', async ($, on) => {
+  engine(on, { pending: null, ran: [] })
+  const future = new Date(Date.now() + 3_600_000).toISOString()
+  const text = await barText($, [
+    { kind: 'five_hour', percentUsed: 40.4, resetsAt: future },
+    { kind: 'seven_day', percentUsed: 69.6, resetsAt: future },
+  ])
+
+  expect(text).toContain('5 h 40%')
+  expect(text).toContain('Semana 70%')
+  expect(text).toContain('Contexto 150k (15% lleno)')
+})

@@ -257,7 +257,8 @@ test('collectCacheSessions: a session started in the home folder shows the neutr
   // changed folder afterwards: still started at home
   writeState(root, 'b', { projectName: 'lib', transcriptPath: makeTranscript(encodedFolder(base, home), 'b.jsonl', 2), sessionId: 'b', updatedAt: at });
   const sessions = withHome(home, () => host.collectCacheSessions({ config: DEFAULTS, now: NOW, root, oauthCredentialsPath: NO_CREDS }));
-  assert.deepStrictEqual(sessions.map((s) => s.project), ['Inicio (~)', 'Inicio (~)']);
+  // two rows from home: the one that changed folder says where it works now
+  assert.deepStrictEqual(sessions.map((s) => s.project), ['Inicio (~)', 'Inicio (~) · lib']);
   assert.ok(!JSON.stringify(sessions).includes('Jane'));
   cleanup();
 });
@@ -432,4 +433,43 @@ test('guardian-host.js refuses a malformed request instead of crashing', () => {
   const garbage = Buffer.concat([Buffer.from([3, 0, 0, 0]), Buffer.from('{{{')]);
   assert.deepStrictEqual(runHost(garbage, home), { ok: false, error: 'bad-request' });
   fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('collectCacheSessions: two sessions started in the same folder get rows you can tell apart', () => {
+  const { root, base, cleanup } = homeFixture();
+  const work = path.join(base, 'work');
+  fs.mkdirSync(work);
+  const folder = encodedFolder(base, work);
+  const at = new Date(NOW - 2 * MIN).toISOString();
+  // both started in work/, then each moved to its own subfolder
+  writeState(root, 'aaa', { projectName: 'api', transcriptPath: makeTranscript(folder, 'a.jsonl', 2), rateLimitPct: 1, lastActivityAt: at });
+  writeState(root, 'bbb', { projectName: 'web', transcriptPath: makeTranscript(folder, 'b.jsonl', 2), rateLimitPct: 1, lastActivityAt: at });
+  // no transcript and the same stored name: only a number tells them apart
+  writeState(root, 'ccc', { projectName: 'site', sessionId: 'c', rateLimitPct: 1, lastActivityAt: at });
+  writeState(root, 'ddd', { projectName: 'site', sessionId: 'd', rateLimitPct: 1, lastActivityAt: at });
+
+  const names = host.collectCacheSessions({ config: DEFAULTS, now: NOW, root, oauthCredentialsPath: NO_CREDS }).map((s) => s.project);
+  assert.deepStrictEqual([...names].sort(), ['site', 'site (2)', 'work · api', 'work · web']);
+  cleanup();
+});
+
+test('collectCacheSessions: a single session keeps its plain name and no internal field leaks', () => {
+  const root = makeRoot();
+  writeState(root, 'aaa', { projectName: 'web', rateLimitPct: 1, lastActivityAt: new Date(NOW - 2 * MIN).toISOString() });
+  const [s] = host.collectCacheSessions({ config: DEFAULTS, now: NOW, root, oauthCredentialsPath: NO_CREDS });
+  assert.strictEqual(s.project, 'web');
+  assert.ok(!('workingIn' in s));
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('collectCacheSessions: an 80-character project name keeps the suffix that tells two rows apart', () => {
+  const root = makeRoot();
+  const long = 'p'.repeat(80);
+  const at = new Date(NOW - 2 * MIN).toISOString();
+  writeState(root, 'aaa', { projectName: long, sessionId: 'a', rateLimitPct: 1, lastActivityAt: at });
+  writeState(root, 'bbb', { projectName: long, sessionId: 'b', rateLimitPct: 1, lastActivityAt: at });
+  const names = host.collectCacheSessions({ config: DEFAULTS, now: NOW, root, oauthCredentialsPath: NO_CREDS }).map((s) => s.project);
+  assert.strictEqual(new Set(names).size, 2, names.join(' | '));
+  assert.ok(names.every((n) => n.length <= 80));
+  fs.rmSync(root, { recursive: true, force: true });
 });

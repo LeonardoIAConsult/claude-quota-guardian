@@ -191,13 +191,25 @@ export const register: Register = on => {
   })
 
   on('session.measure', async ($, e, next) => {
-    const windowPct = (kind: string): number | null =>
-      e.rateLimits.find(limit => limit.kind === kind)?.percentUsed ?? null
+    const windowOf = (kind: string) => e.rateLimits.find(limit => limit.kind === kind)
+    // whole points, as /usage and the extension show them
+    const windowPct = (kind: string): number | null => {
+      const used = windowOf(kind)?.percentUsed
+
+      return used === undefined ? null : Math.round(used)
+    }
+    const windowResetsAt = (kind: string): number | null => {
+      const at = Date.parse(windowOf(kind)?.resetsAt ?? '')
+
+      return Number.isNaN(at) ? null : at
+    }
     const fresh: Usage = {
       tokens: e.context.tokens ?? 0,
-      percent: e.context.percent ?? 0,
+      percent: Math.round(e.context.percent ?? 0),
       fiveHour: windowPct('five_hour'),
       week: windowPct('seven_day'),
+      fiveHourResetsAt: windowResetsAt('five_hour'),
+      weekResetsAt: windowResetsAt('seven_day'),
       usd: e.cost?.usd ?? null,
       subscription: e.rateLimits.length > 0,
     }
@@ -261,10 +273,14 @@ export const register: Register = on => {
     const ttl = ttlMinutes(cfg, subscriptionOf(fromState, data.subscription))
     const left = last === 0 ? null : minutesLeft(last, ttl, at)
     const color = left === null ? 'green' : left === 0 ? 'red' : left <= cfg.warnMinutes ? 'yellow' : 'green'
+    // measure only fires on an API response: a window that reset while the
+    // session sat idle must not keep its old % (the tick keeps `at` current)
+    const windowText = (label: string, pct: number | null, resetsAt: number | null): string | null =>
+      pct === null ? null : resetsAt !== null && at >= resetsAt ? `${label} —` : `${label} ${pct}%`
     const parts = [
-      `Contexto ${thousands(data.tokens)} (${data.percent}%)`,
-      data.fiveHour === null ? null : `5 h ${data.fiveHour}%`,
-      data.week === null ? null : `Semana ${data.week}%`,
+      `Contexto ${thousands(data.tokens)} (${data.percent}% lleno)`,
+      windowText('5 h', data.fiveHour, data.fiveHourResetsAt),
+      windowText('Semana', data.week, data.weekResetsAt),
       data.usd === null ? null : `Por API US$ ${data.usd.toFixed(2)}`,
     ].filter(part => part !== null)
 

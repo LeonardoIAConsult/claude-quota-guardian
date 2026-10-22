@@ -61,6 +61,7 @@ main { padding: 12px 14px; }
 }
 .row-label { font-weight: 600; }
 .row-pct { font-variant-numeric: tabular-nums; font-weight: 600; }
+.row-pct.muted { color: var(--muted); font-weight: 400; }
 .row-reset { font-size: 11px; color: var(--muted); margin-top: 3px; }
 
 .bar {

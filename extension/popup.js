@@ -8,21 +8,19 @@ function colorClass(pct) {
   return 'green';
 }
 
-function fmtReset(iso) {
-  if (!iso) return '';
-  const t = Date.parse(iso);
-  if (Number.isNaN(t)) return '';
-  const diffMs = t - Date.now();
-  if (diffMs <= 0) return 'reinicia pronto';
-  const mins = Math.round(diffMs / 60000);
-  if (mins < 60) return `reinicia en ${mins} min`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `reinicia en ${hrs} h ${mins % 60} min`;
-  const days = Math.round(hrs / 24);
-  return `reinicia en ${days} d`;
-}
-
-function rowHtml(w, scoped) {
+// A window whose reset already passed shows that, not its old % as if current.
+function rowHtml(w) {
+  if (self.GuardianUsage.isRolledOver(w, Date.now())) {
+    return `
+    <div class="row">
+      <div class="row-top">
+        <span class="row-label">${escapeHtml(w.label)}</span>
+        <span class="row-pct muted">reiniciada</span>
+      </div>
+      <div class="bar"><span class="green" style="width:2%"></span></div>
+      <div class="row-reset">Se reinició; el nuevo dato llega en la próxima lectura.</div>
+    </div>`;
+  }
   const cls = colorClass(w.pct);
   return `
     <div class="row">
@@ -31,7 +29,7 @@ function rowHtml(w, scoped) {
         <span class="row-pct">${Math.round(w.pct)}%</span>
       </div>
       <div class="bar"><span class="${cls}" style="width:${Math.max(2, Math.min(100, w.pct))}%"></span></div>
-      ${w.resetAt ? `<div class="row-reset">${fmtReset(w.resetAt)}</div>` : ''}
+      ${w.resetAt ? `<div class="row-reset">${self.GuardianUsage.fmtLeft(w.resetAt, Date.now())}</div>` : ''}
     </div>`;
 }
 
@@ -67,38 +65,31 @@ function escapeHtml(s) {
   ));
 }
 
-const REASON_TEXT = {
-  'not-logged-in': 'Inicia sesión en claude.ai para ver tu consumo.',
-  'network': 'Sin conexión con claude.ai.',
-  'no-org': 'No se encontró tu cuenta.',
-  'no-windows': 'Claude no devolvió datos de cuota.',
-  'bad-json': 'Respuesta inesperada de Claude.',
-};
-
-function render(u) {
+// u: last good reading (or null); error: reason of the latest failed refresh.
+// A failure never hides good numbers: they stay, with a note that they are old.
+function render(u, error) {
   const statusEl = document.getElementById('status');
   const blockingEl = document.getElementById('blocking');
   const scopedSection = document.getElementById('scoped');
   const scopedRows = document.getElementById('scoped-rows');
   const creditsSection = document.getElementById('credits');
   const creditRows = document.getElementById('credit-rows');
+  const updated = document.getElementById('updated');
 
-  if (!u || !u.ok) {
-    const reason = (u && u.reason) || 'unknown';
-    statusEl.textContent = REASON_TEXT[reason] || (reason.startsWith('http-')
-      ? `Error de Claude (${reason}).` : 'No se pudo leer el consumo.');
+  if (!u || !u.ok || !Array.isArray(u.blocking)) {
+    statusEl.textContent = self.GuardianUsage.reasonText(error || (u && u.reason));
     statusEl.className = 'status error';
     blockingEl.innerHTML = '';
     scopedSection.hidden = true;
     creditsSection.hidden = true;
+    updated.textContent = '';
     return;
   }
 
-  statusEl.className = 'status hidden';
-  blockingEl.innerHTML = u.blocking.map((w) => rowHtml(w, false)).join('');
+  blockingEl.innerHTML = u.blocking.map(rowHtml).join('');
 
   if (u.scoped && u.scoped.length) {
-    scopedRows.innerHTML = u.scoped.map((w) => rowHtml(w, true)).join('');
+    scopedRows.innerHTML = u.scoped.map(rowHtml).join('');
     scopedSection.hidden = false;
   } else {
     scopedSection.hidden = true;
@@ -111,8 +102,14 @@ function render(u) {
     creditsSection.hidden = true;
   }
 
-  const updated = document.getElementById('updated');
-  updated.textContent = u.fetchedAt ? `Actualizado ${fmtAgo(u.fetchedAt)}` : '';
+  if (error) {
+    statusEl.textContent = `Sin actualizar: ${self.GuardianUsage.reasonText(error)} Muestro el último dato.`;
+    statusEl.className = 'status error';
+    updated.textContent = u.fetchedAt ? `Último dato ${fmtAgo(u.fetchedAt)}` : '';
+  } else {
+    statusEl.className = 'status hidden';
+    updated.textContent = u.fetchedAt ? `Actualizado ${fmtAgo(u.fetchedAt)}` : '';
+  }
 }
 
 function fmtAgo(ts) {
@@ -125,25 +122,27 @@ function fmtAgo(ts) {
 
 async function load(forceFresh) {
   const btn = document.getElementById('refresh');
-  // 1) instant paint from cache
-  const cached = await chrome.storage.local.get('lastUsage');
-  if (cached && cached.lastUsage) render(cached.lastUsage);
+  // 1) instant paint from what the worker stored last
+  const cached = await chrome.storage.local.get(['lastUsage', 'lastError']);
+  const good = cached.lastUsage && cached.lastUsage.ok ? cached.lastUsage : null;
+  if (good || cached.lastError) render(good, cached.lastError);
 
   // 2) single fresh read: the service worker owns the fetch (and updates the
   //    badge); we just read back what it returns. No duplicate request.
   if (forceFresh) btn.classList.add('spinning');
-  let fresh = null;
+  let resp = null;
   try {
-    const resp = await chrome.runtime.sendMessage({ type: 'refresh' });
-    if (resp && resp.usage) fresh = resp.usage;
+    resp = await chrome.runtime.sendMessage({ type: 'refresh' });
   } catch (_) {
-    // worker unavailable -- fall back to whatever is cached
+    // worker unavailable -- fall back to whatever is stored
   }
-  if (!fresh) {
-    const after = await chrome.storage.local.get('lastUsage');
-    fresh = (after && after.lastUsage) || { ok: false, reason: 'network' };
+  if (resp && resp.ok) {
+    render(resp.usage, resp.error);
+  } else {
+    const after = await chrome.storage.local.get(['lastUsage', 'lastError']);
+    const last = after.lastUsage && after.lastUsage.ok ? after.lastUsage : null;
+    render(last, after.lastError || (last ? null : 'network'));
   }
-  render(fresh);
   btn.classList.remove('spinning');
 }
 

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Claude Quota Guardian — Monitor",
-  "version": "1.1.0",
+  "version": "1.1.5",
   "description": "Tu consumo de Claude en vivo (5h, semanal, por modelo) y cuánto le queda al caché de Claude Code. Sin tokens ni credenciales.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAnutttxp4Dc+2NK2J47qAN1VK91+6tIrKORCFgF1XtanM+EWu5c92aKSKfB8p4T9LmUBEzO/KEbo2M3rdpolNO+mVcDCsO7inUkT5gGIM6pgFv/BO5pouV5CdroJS0QZUjiio2S6sxk/mEs2iFC2kHulLeK0J3sb2Sib8oq4nA3QV9oZBCMDStwmWNa7CY6cUPAoIetOjn8R/+nieYpOrWTHBIWIJWHtHhMDYZDdUHVNCKlqPDEyKZKDlY1nNfZlcduN+MrQHvUYF8Sgo26+9a1IpEr+7GPIUxtooCufH9WjO1wP4RaeXmucH3ROSPsVdKlCJ4mFRBHeXsr1RhHDXKwIDAQAB",
   "permissions": [

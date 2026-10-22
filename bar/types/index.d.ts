@@ -3,6 +3,9 @@ export type Usage = {
   percent: number
   fiveHour: number | null
   week: number | null
+  // when each window resets (ms since epoch), null when the engine gave none
+  fiveHourResetsAt: number | null
+  weekResetsAt: number | null
   usd: number | null
   subscription: boolean
 }

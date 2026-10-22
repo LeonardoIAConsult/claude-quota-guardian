@@ -79,7 +79,8 @@ The bar and the extension speak Spanish today, like Guardian's other messages.
 
 `extension/` contains a **Manifest V3** extension (Chrome/Edge/Brave) to **watch your usage live** without opening Settings:
 
-- **Toolbar badge**: the % of the most-pressing window (session or weekly), colored green/orange/red by how close it is to the cap. Refreshed in the background.
+- **Toolbar badge**: the % of the most-pressing window with its letter in front, `5h` for the session and `S` for the weekly (`S70` = weekly at 70%), colored green/orange/red by how close it is to the cap. Hover it to see every window, when each one resets and the time of the reading. Refreshed in the background.
+- **If claude.ai fails for a moment**, you keep the number: the last good reading stays, greyed out, marked as not updated. If you signed out, it is cleared and the badge shows `!`. A window that already reset does not show its old %.
 - **Popup**: Session (5h) and Weekly as the main bars; per-model limits (Fable, etc.) as advisory; a reset countdown for each window.
 - **Dollar credits** (e.g. the promotional credit for cloud sessions): used, remaining and expiry. Informational only: never in the badge or the block. From the terminal: `node scripts/credits.js`.
 - **Claude Code cache**: how long the cache of each Claude Code session that still has one has left, green, orange at 5 minutes or less. Once it expires, the session leaves the list.
@@ -104,7 +105,7 @@ Install: `chrome://extensions` → Developer mode → **Load unpacked** → the 
 - **Works on any plan and any OS**: auto-detects only the installing user's quota (Pro/Max/Team) by reading Claude Code's OAuth token — a file on Windows/Linux, the **Keychain on macOS**.
 - **Visual monitor**: browser extension with badge + popup (above).
 - **One-command install, clean uninstall**: merges its hooks into `settings.json` without touching yours; the uninstaller only removes its own.
-- **373 tests**: 351 with `npm test`, run in CI on Windows, macOS and Linux across Node 18 and 20, and 22 for the bar with `claude plugin test bar`.
+- **393 tests**: 369 with `npm test`, run in CI on Windows, macOS and Linux across Node 18 and 20, and 24 for the bar with `claude plugin test bar`.
 - **Extensible to other AI providers**: adapter architecture; ships with notify-only monitoring of **OpenAI Codex CLI** today.
 
 ## Who is it for?
