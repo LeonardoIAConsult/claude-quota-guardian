@@ -50,12 +50,13 @@ export const TEXTS = {
 
 export type Texts = (typeof TEXTS)[Lang]
 
-// 'es', 'es_CO.UTF-8', 'es-MX' -> es; any other tag -> en; empty, 'C' and
-// 'POSIX' say nothing about the language -> null.
+// 'es', 'es_CO.UTF-8', 'es-MX' -> es; any other tag -> en; empty, 'C', 'POSIX'
+// and their variants ('C.UTF-8', the WSL/Docker default) say nothing about the
+// language -> null.
 export function langOf(locale: string | undefined): Lang | null {
   const tag = (locale ?? '').trim().toLowerCase()
 
-  if (tag === '' || tag === 'c' || tag === 'posix') {
+  if (tag === '' || /^(c|posix)([._@]|$)/.test(tag)) {
     return null
   }
 
@@ -63,13 +64,17 @@ export function langOf(locale: string | undefined): Lang | null {
 }
 
 // The POSIX variables first (LC_ALL wins over LANG), then the runtime's locale.
-export async function detectLang($: EngineInterface): Promise<Lang> {
+// runtimeLocale is a parameter only so tests can pin it (Intl is read-only in the engine).
+export async function detectLang(
+  $: EngineInterface,
+  runtimeLocale: () => string | undefined = () => Intl.DateTimeFormat().resolvedOptions().locale,
+): Promise<Lang> {
   // (the engine wants literal variable names in $.env.get)
   return (
     langOf(await $.env.get('LC_ALL')) ??
     langOf(await $.env.get('LC_MESSAGES')) ??
     langOf(await $.env.get('LANG')) ??
-    langOf(Intl.DateTimeFormat().resolvedOptions().locale) ??
+    langOf(runtimeLocale()) ??
     'en'
   )
 }

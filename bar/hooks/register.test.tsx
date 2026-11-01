@@ -2,7 +2,7 @@ import type { On } from 'claude-code'
 import { expect, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 
-import { langOf } from './i18n'
+import { detectLang, langOf } from './i18n'
 import { proofNoteName, projectHash } from './shared'
 
 // The handoff cycle: Traspaso -> (checkpoint turn) -> Limpiar y seguir -> /clear.
@@ -609,5 +609,22 @@ test('with a non-Spanish locale the handoff cycle works the same, with English b
 test('es-* locales pick Spanish, anything else English; C and POSIX defer to the next source', () => {
   expect(['es', 'es_CO.UTF-8', 'es-MX', 'ES_ES@euro'].map(langOf)).toEqual(['es', 'es', 'es', 'es'])
   expect(['en_US.UTF-8', 'fr', 'pt-BR', 'est'].map(langOf)).toEqual(['en', 'en', 'en', 'en'])
-  expect([undefined, '', 'C', 'POSIX'].map(langOf)).toEqual([null, null, null, null])
+  expect([undefined, '', 'C', 'POSIX', 'C.UTF-8', 'c.utf8', 'POSIX@x'].map(langOf)).toEqual([null, null, null, null, null, null, null])
+})
+
+// detectLang with a fake env and a pinned runtime locale (Windows has no LC_ALL/LANG: Intl decides)
+async function langWith(env: Record<string, string | undefined>, runtimeLocale: string): Promise<string> {
+  // biome-ignore lint/suspicious/noExplicitAny: detectLang only uses $.env.get
+  return detectLang({ env: { get: async (name: string) => env[name] } } as any, () => runtimeLocale)
+}
+
+test('without LC_ALL/LC_MESSAGES/LANG (Windows) the runtime locale decides', async () => {
+  expect(await langWith({}, 'es-CO')).toBe('es')
+  expect(await langWith({}, 'en-US')).toBe('en')
+})
+
+test('LC_ALL wins over LANG, and C.UTF-8 defers to the next source', async () => {
+  expect(await langWith({ LC_ALL: 'en_US.UTF-8', LANG: 'es_CO.UTF-8' }, 'es-CO')).toBe('en')
+  expect(await langWith({ LC_ALL: 'C.UTF-8', LANG: 'es_CO.UTF-8' }, 'en-US')).toBe('es')
+  expect(await langWith({ LC_MESSAGES: 'es_MX.UTF-8', LANG: 'en_US.UTF-8' }, 'en-US')).toBe('es')
 })
