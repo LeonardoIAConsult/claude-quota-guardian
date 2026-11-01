@@ -2,6 +2,7 @@ import type { On } from 'claude-code'
 import { expect, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 
+import { langOf } from './i18n'
 import { proofNoteName, projectHash } from './shared'
 
 // The handoff cycle: Traspaso -> (checkpoint turn) -> Limpiar y seguir -> /clear.
@@ -34,10 +35,14 @@ type Disk = {
   // what $.session.id() reports now (default 's1')
   sessionId?: string
   shared?: { hash: string; json: object; transcriptMtime?: number }
+  // the system's language as LC_ALL spells it (default Spanish, so the texts below stay Spanish)
+  locale?: string
 }
 
 function engine(on: On, state: Disk) {
-  on('env.get', (_, e) => ({ value: e.name === 'USERPROFILE' ? 'C:/home' : undefined }))
+  on('env.get', (_, e) => ({
+    value: e.name === 'USERPROFILE' ? 'C:/home' : e.name === 'LC_ALL' ? (state.locale ?? 'es_CO.UTF-8') : undefined,
+  }))
   on('fs.read', (_, e) => {
     if (slashes(e.path) === `${ROOT}/${state.pendingDir ?? PROJECT}/pending.json` && state.pending !== null) {
       return { value: JSON.stringify({ consumed: state.pending.consumed, checkpointFile: state.pending.checkpointFile }) }
@@ -553,4 +558,56 @@ test('the windows show whole percents and the context is not mistaken for quota'
   expect(text).toContain('5 h 40%')
   expect(text).toContain('Semana 70%')
   expect(text).toContain('Contexto 150k (15% lleno)')
+})
+
+// The same bar in English: any locale that is not es* (the texts are in ./i18n.ts).
+test('with an English locale the bar speaks English, with the same numbers', async ($, on) => {
+  engine(on, { pending: null, ran: [], locale: 'en_US.UTF-8' })
+  const future = new Date(Date.now() + 3_600_000).toISOString()
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.session.measure({
+    context: { tokens: 150_000, window: 1_000_000, percent: 15.4 },
+    rateLimits: [
+      { kind: 'five_hour', percentUsed: 40.4, resetsAt: future },
+      { kind: 'seven_day', percentUsed: 69.6, resetsAt: future },
+    ],
+    changed: [],
+  })
+  await $.turn.complete({ answer: 'ok', durationMs: 1, isAborted: false, turnId: 't1', reason: 'answer' })
+
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect((await ui.find({ type: 'Text', text: /Cache [0-9]+ min/ }))?.text).toBe('Cache 60 min')
+  const text = (await ui.find({ type: 'Text', text: /Context/ }))?.text ?? ''
+  await ui.unmount()
+
+  expect(text).toContain('5h 40%')
+  expect(text).toContain('Weekly 70%')
+  expect(text).toContain('Context 150k (15% full)')
+  expect(text).not.toMatch(/Contexto|Semana|lleno/)
+})
+
+test('with a non-Spanish locale the handoff cycle works the same, with English buttons', async ($, on) => {
+  const state: { pending: Pending; ran: string[]; locale: string } = { pending: null, ran: [], locale: 'fr_FR.UTF-8' }
+  engine(on, state)
+  await startWithUsage($)
+
+  let ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect((await ui.find({ key: 'handoff' }))?.props?.label).toBe('Handoff')
+  await ui.press({ key: 'handoff' })
+  await ui.unmount()
+
+  state.pending = { consumed: false, checkpointFile: 'C:/home/new.md', mtimeMs: Date.now() + 5_000 }
+  await $.turn.complete({ answer: 'saved', durationMs: 1, isAborted: false, turnId: 't2', reason: 'answer' })
+
+  ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect((await ui.find({ key: 'clear' }))?.props?.label).toBe('Clear and continue')
+  await ui.press({ key: 'clear' })
+  await ui.unmount()
+  expect(state.ran).toEqual(['continuity-checkpoint', 'clear'])
+})
+
+test('es-* locales pick Spanish, anything else English; C and POSIX defer to the next source', () => {
+  expect(['es', 'es_CO.UTF-8', 'es-MX', 'ES_ES@euro'].map(langOf)).toEqual(['es', 'es', 'es', 'es'])
+  expect(['en_US.UTF-8', 'fr', 'pt-BR', 'est'].map(langOf)).toEqual(['en', 'en', 'en', 'en'])
+  expect([undefined, '', 'C', 'POSIX'].map(langOf)).toEqual([null, null, null, null])
 })

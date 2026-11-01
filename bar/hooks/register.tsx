@@ -2,6 +2,8 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { CacheConfig, Usage } from '../types'
+import { detectLang, TEXTS } from './i18n'
+import type { Texts } from './i18n'
 import { currentFolder, readShared, recordRateLimitsProof, subscriptionOf } from './shared'
 
 // The bar above the prompt: prompt-cache countdown, context size, 5h / week,
@@ -109,6 +111,8 @@ async function freshCheckpoint($: EngineInterface, root: string | undefined, sin
 
 export const register: Register = on => {
   let warned = false
+  // the texts in the system's language, chosen on session.start
+  let tx: Texts = TEXTS.en
   let ticking = false
   let root: string | undefined
   let handoffAt = 0
@@ -121,6 +125,7 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const t = await $.clock.now()
     await update($, now, () => t)
+    tx = TEXTS[await detectLang($)]
     warned = false
     handoffAt = 0
     generation += 1
@@ -166,9 +171,7 @@ export const register: Register = on => {
 
           if (left > 0 && left <= cfg.warnMinutes && !warned) {
             warned = true
-            $.ui.toast(`Al caché le quedan ${left} min. Envía un mensaje para mantenerlo o haz el traspaso.`, {
-              timeoutMs: 15_000,
-            })
+            $.ui.toast(tx.cacheWarning(left), { timeoutMs: 15_000 })
           }
         })().catch(() => undefined)
       })
@@ -278,53 +281,50 @@ export const register: Register = on => {
     const windowText = (label: string, pct: number | null, resetsAt: number | null): string | null =>
       pct === null ? null : resetsAt !== null && at >= resetsAt ? `${label} —` : `${label} ${pct}%`
     const parts = [
-      `Contexto ${thousands(data.tokens)} (${data.percent}% lleno)`,
-      windowText('5 h', data.fiveHour, data.fiveHourResetsAt),
-      windowText('Semana', data.week, data.weekResetsAt),
-      data.usd === null ? null : `Por API US$ ${data.usd.toFixed(2)}`,
+      tx.context(thousands(data.tokens), data.percent),
+      windowText(tx.fiveHour, data.fiveHour, data.fiveHourResetsAt),
+      windowText(tx.week, data.week, data.weekResetsAt),
+      data.usd === null ? null : tx.apiCost(data.usd.toFixed(2)),
     ].filter(part => part !== null)
 
     const mine = (
       <Box flexDirection="row" gap={2} flexWrap="wrap">
         {left !== null && (
           <Text color={color} bold>
-            {left === 0 ? 'Caché vencido' : `Caché ${left} min`}
+            {left === 0 ? tx.cacheExpired : tx.cacheLeft(left)}
           </Text>
         )}
         <Text dimColor>{parts.join(' · ')}</Text>
         {left !== null && left <= cfg.warnMinutes && (
-          <Text color={color}>
-            {left === 0 ? 'El siguiente mensaje vuelve' : 'Si vence, el siguiente mensaje vuelve'} a cobrar{' '}
-            {thousands(data.tokens)} tokens
-          </Text>
+          <Text color={color}>{tx.rebill(left === 0, thousands(data.tokens))}</Text>
         )}
         {checkpointReady ? (
           <Button
             key="clear"
-            label="Limpiar y seguir"
+            label={tx.clearButton}
             variant="primary"
             onPress={async () => {
               await update($, ready, () => false)
 
               if (!(await freshCheckpoint($, root, handoffAt))) {
                 handoffAt = 0
-                $.ui.toast('No encontré un checkpoint pendiente de cargar, así que no limpié la sesión. Pulsa Traspaso otra vez.')
+                $.ui.toast(tx.noCheckpoint)
 
                 return
               }
 
               try {
                 await $.command.run({ command: 'clear', args: '' })
-                await $.prompt.submit({ text: 'Retoma desde el checkpoint de Guardian.' })
+                await $.prompt.submit({ text: tx.resumePrompt })
               } catch {
-                $.ui.toast('No se pudo limpiar automáticamente. Ejecuta /clear: Guardian retoma el checkpoint solo.')
+                $.ui.toast(tx.clearFailed)
               }
             }}
           />
         ) : (
           <Button
             key="handoff"
-            label="Traspaso"
+            label={tx.handoffButton}
             onPress={async () => {
               // Installed by bin/install.js it is /continuity-checkpoint; as a
               // marketplace plugin it carries the plugin's prefix.
@@ -334,7 +334,7 @@ export const register: Register = on => {
                 commands.find(c => c.name.endsWith(':continuity-checkpoint'))
 
               if (found === undefined) {
-                $.ui.toast('Falta /continuity-checkpoint: instala Claude Quota Guardian para usar el traspaso.')
+                $.ui.toast(tx.missingCommand)
 
                 return
               }
@@ -350,7 +350,7 @@ export const register: Register = on => {
                 } catch {
                   handoffAt = 0
                   await update($, waiting, () => false)
-                  $.ui.toast(`No se pudo iniciar el traspaso. Escribe /${found.name}.`)
+                  $.ui.toast(tx.handoffFailed(found.name))
                 }
               }
             }}
