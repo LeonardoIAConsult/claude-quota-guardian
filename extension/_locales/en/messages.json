@@ -1,0 +1,295 @@
+{
+  "extName": {
+    "message": "Claude Quota Guardian — Monitor",
+    "description": "Extension name"
+  },
+  "extDescription": {
+    "message": "Your Claude usage live (5h window, weekly, per model) and how much Claude Code cache is left. No tokens or credentials.",
+    "description": "Extension description"
+  },
+  "actionTitle": {
+    "message": "Guardian — Claude usage",
+    "description": "Toolbar tooltip and popup title"
+  },
+  "refresh": {
+    "message": "Refresh",
+    "description": "Refresh button"
+  },
+  "loading": {
+    "message": "Loading…",
+    "description": "Initial status"
+  },
+  "scopedLabel": {
+    "message": "Per model · advisory only",
+    "description": "Popup section label"
+  },
+  "creditsLabel": {
+    "message": "Dollar credits · not part of your plan",
+    "description": "Popup section label"
+  },
+  "cacheLabel": {
+    "message": "Claude Code cache · if it expires, the next message re-bills the whole context",
+    "description": "Popup section label"
+  },
+  "openClaude": {
+    "message": "Open in Claude ↗",
+    "description": "Footer link"
+  },
+  "winSession": {
+    "message": "5h window",
+    "description": "Account-wide 5 hour window"
+  },
+  "winWeekly": {
+    "message": "Weekly",
+    "description": "Account-wide weekly window"
+  },
+  "creditCloud": {
+    "message": "Cloud credit",
+    "description": "Dollar credit label"
+  },
+  "creditPromo": {
+    "message": "Promo credit",
+    "description": "Dollar credit label"
+  },
+  "resetDone": {
+    "message": "reset",
+    "description": "Window already reset"
+  },
+  "resetInMin": {
+    "message": "resets in $p1$ min",
+    "description": "Minutes until reset",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "resetInHrMin": {
+    "message": "resets in $p1$ h $p2$ min",
+    "description": "Hours and minutes until reset",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      },
+      "p2": {
+        "content": "$2"
+      }
+    }
+  },
+  "resetInDays": {
+    "message": "resets in $p1$ d",
+    "description": "Days until reset",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "pct": {
+    "message": "$p1$%",
+    "description": "Percent inside tooltips",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "tipRolled": {
+    "message": "$p1$: reset, refreshing…",
+    "description": "Tooltip: window that already reset",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "tipUpdated": {
+    "message": "updated $p1$",
+    "description": "Tooltip: reading time",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "tipStale": {
+    "message": "not updated: $p1$",
+    "description": "Tooltip: last refresh failed",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "tipLead": {
+    "message": "badge shows $p1$",
+    "description": "Tooltip: which window the badge number is",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "tipAllReset": {
+    "message": "all windows reset",
+    "description": "Tooltip: every window reset"
+  },
+  "reasonNotLoggedIn": {
+    "message": "Sign in to claude.ai to see your usage.",
+    "description": "Error reason"
+  },
+  "reasonNetwork": {
+    "message": "Can't reach claude.ai.",
+    "description": "Error reason"
+  },
+  "reasonNoOrg": {
+    "message": "Couldn't find your account.",
+    "description": "Error reason"
+  },
+  "reasonNoWindows": {
+    "message": "Claude returned no quota data.",
+    "description": "Error reason"
+  },
+  "reasonBadJson": {
+    "message": "Unexpected response from Claude.",
+    "description": "Error reason"
+  },
+  "reasonWorkerError": {
+    "message": "Couldn't read your usage.",
+    "description": "Error reason (also the default)"
+  },
+  "reasonHttp": {
+    "message": "Claude returned an error ($p1$).",
+    "description": "Error reason with HTTP status",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "rolledNote": {
+    "message": "Reset; the new value arrives on the next reading.",
+    "description": "Popup row note"
+  },
+  "expiresIn": {
+    "message": "expires in $p1$ d",
+    "description": "Credit expiry",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "expired": {
+    "message": "expired",
+    "description": "Credit or cache expired"
+  },
+  "creditLeft": {
+    "message": "$p1$ left",
+    "description": "Credit remaining",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "creditUsed": {
+    "message": "$p1$ used of $p2$",
+    "description": "Credit used of limit",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      },
+      "p2": {
+        "content": "$2"
+      }
+    }
+  },
+  "staleStatus": {
+    "message": "Not updated: $p1$ Showing the last reading.",
+    "description": "Popup status when refresh failed but an old reading exists",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "lastReading": {
+    "message": "Last reading $p1$",
+    "description": "Footer",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "updatedAgo": {
+    "message": "Updated $p1$",
+    "description": "Footer",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "agoNow": {
+    "message": "just now",
+    "description": "Relative time"
+  },
+  "agoSec": {
+    "message": "$p1$s ago",
+    "description": "Relative time",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "agoMin": {
+    "message": "$p1$ min ago",
+    "description": "Relative time",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "cacheLeft": {
+    "message": "$p1$ min left",
+    "description": "Cache minutes left",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "cacheExpiredHint": {
+    "message": "The next message pays for the whole context again. If you're staying a while, do the handoff and start clean.",
+    "description": "Cache row hint"
+  },
+  "cacheWarnHint": {
+    "message": "Send a message to keep it alive, or do the handoff.",
+    "description": "Cache row hint"
+  },
+  "cacheTtlHint": {
+    "message": "Lasts $p1$ min from your last message.",
+    "description": "Cache row hint",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "hintNoHost": {
+    "message": "To see the Claude Code cache, install Guardian on this machine (node bin/install.js) and restart the browser.",
+    "description": "Cache section: native host missing"
+  },
+  "hintHostError": {
+    "message": "Guardian couldn't read the Claude Code cache.",
+    "description": "Cache section: native host error"
+  },
+  "cacheEmpty": {
+    "message": "No Claude Code session has a live cache right now.",
+    "description": "Cache section: no live sessions"
+  }
+}

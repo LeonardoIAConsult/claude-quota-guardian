@@ -44,6 +44,8 @@ function loadExtensionUsage() {
   const src = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'lib', 'usage.js'), 'utf8');
   const sandbox = { self: {} };
   vm.runInNewContext(src, sandbox);
+  // no chrome.i18n here: Spanish messages, the language the CLI side speaks too
+  sandbox.self.GuardianUsage.setMessages(require('../../extension/_locales/es/messages.json'));
   return sandbox.self.GuardianUsage;
 }
 
