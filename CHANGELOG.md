@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.1.8 — 2026-11-01
+
+### Added
+- English. The browser extension (popup, badge tooltip, reasons, name and description) follows the
+  browser's language through `chrome.i18n` (`_locales/es`, `_locales/en`; `default_locale: en`, so
+  any non-Spanish browser gets English). The bar above the prompt follows the system's language:
+  `LC_ALL`, then `LC_MESSAGES`, then `LANG`, then the OS locale (Windows has no `LANG`); `es*` is
+  Spanish, anything else English, and `C`/`POSIX`/`C.UTF-8` defer to the next source. Spanish
+  texts are unchanged. Guardian's other messages (hooks, CLI, watcher) are still Spanish.
+
+### Notes
+- Reload the unpacked extension in `chrome://extensions` to get the new texts. Its ID does not change.
+
 ## 1.1.7 — 2026-10-22
 
 ### Fixed

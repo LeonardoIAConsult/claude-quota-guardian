@@ -2,6 +2,17 @@
 // worker for a fresh reading. All data comes from the user's own claude.ai
 // session via lib/usage.js.
 
+const t = self.GuardianUsage.t;
+
+// Static texts of popup.html: data-i18n fills the text, data-i18n-label the
+// tooltip and accessible name. The strings live in _locales/<lang>/messages.json.
+document.documentElement.lang = chrome.i18n.getUILanguage();
+for (const el of document.querySelectorAll('[data-i18n]')) el.textContent = t(el.dataset.i18n);
+for (const el of document.querySelectorAll('[data-i18n-label]')) {
+  el.title = t(el.dataset.i18nLabel);
+  el.setAttribute('aria-label', el.title);
+}
+
 function colorClass(pct) {
   if (pct >= 90) return 'red';
   if (pct >= 70) return 'orange';
@@ -15,10 +26,10 @@ function rowHtml(w) {
     <div class="row">
       <div class="row-top">
         <span class="row-label">${escapeHtml(w.label)}</span>
-        <span class="row-pct muted">reiniciada</span>
+        <span class="row-pct muted">${escapeHtml(t('resetDone'))}</span>
       </div>
       <div class="bar"><span class="green" style="width:2%"></span></div>
-      <div class="row-reset">Se reinició; el nuevo dato llega en la próxima lectura.</div>
+      <div class="row-reset">${escapeHtml(t('rolledNote'))}</div>
     </div>`;
   }
   const cls = colorClass(w.pct);
@@ -39,10 +50,10 @@ function fmtUsd(n) {
 
 function fmtExpiry(iso) {
   if (!iso) return '';
-  const t = Date.parse(iso);
-  if (Number.isNaN(t)) return '';
-  const days = Math.ceil((t - Date.now()) / 86400000);
-  return days > 0 ? `vence en ${days} d` : 'vencido';
+  const at = Date.parse(iso);
+  if (Number.isNaN(at)) return '';
+  const days = Math.ceil((at - Date.now()) / 86400000);
+  return days > 0 ? t('expiresIn', days) : t('expired');
 }
 
 function creditRowHtml(c) {
@@ -52,10 +63,10 @@ function creditRowHtml(c) {
     <div class="row">
       <div class="row-top">
         <span class="row-label">${escapeHtml(c.label)}</span>
-        <span class="row-pct">quedan ${fmtUsd(c.remaining)}</span>
+        <span class="row-pct">${escapeHtml(t('creditLeft', fmtUsd(c.remaining)))}</span>
       </div>
       <div class="bar"><span class="${cls}" style="width:${Math.max(2, Math.min(100, c.pct))}%"></span></div>
-      <div class="row-reset">${fmtUsd(c.used)} usados de ${fmtUsd(c.limit)}${expiry ? ` · ${expiry}` : ''}</div>
+      <div class="row-reset">${escapeHtml(t('creditUsed', fmtUsd(c.used), fmtUsd(c.limit)))}${expiry ? ` · ${expiry}` : ''}</div>
     </div>`;
 }
 
@@ -103,21 +114,21 @@ function render(u, error) {
   }
 
   if (error) {
-    statusEl.textContent = `Sin actualizar: ${self.GuardianUsage.reasonText(error)} Muestro el último dato.`;
+    statusEl.textContent = t('staleStatus', self.GuardianUsage.reasonText(error));
     statusEl.className = 'status error';
-    updated.textContent = u.fetchedAt ? `Último dato ${fmtAgo(u.fetchedAt)}` : '';
+    updated.textContent = u.fetchedAt ? t('lastReading', fmtAgo(u.fetchedAt)) : '';
   } else {
     statusEl.className = 'status hidden';
-    updated.textContent = u.fetchedAt ? `Actualizado ${fmtAgo(u.fetchedAt)}` : '';
+    updated.textContent = u.fetchedAt ? t('updatedAgo', fmtAgo(u.fetchedAt)) : '';
   }
 }
 
 function fmtAgo(ts) {
   const s = Math.round((Date.now() - ts) / 1000);
-  if (s < 10) return 'ahora';
-  if (s < 60) return `hace ${s}s`;
+  if (s < 10) return t('agoNow');
+  if (s < 60) return t('agoSec', s);
   const m = Math.round(s / 60);
-  return `hace ${m} min`;
+  return t('agoMin', m);
 }
 
 async function load(forceFresh) {
@@ -151,12 +162,12 @@ async function load(forceFresh) {
 function cacheRowHtml(s) {
   const left = Math.max(0, Math.min(100, (s.minutesLeft / s.ttlMinutes) * 100));
   const cls = s.expired ? 'red' : s.warn ? 'orange' : 'green';
-  const text = s.expired ? 'vencido' : `quedan ${s.minutesLeft} min`;
+  const text = s.expired ? t('expired') : t('cacheLeft', s.minutesLeft);
   const hint = s.expired
-    ? 'El siguiente mensaje vuelve a pagar todo el contexto. Si vas a seguir mucho, haz el traspaso y empieza limpio.'
+    ? t('cacheExpiredHint')
     : s.warn
-      ? 'Envía un mensaje para mantenerlo o haz el traspaso.'
-      : `Dura ${s.ttlMinutes} min desde tu último mensaje.`;
+      ? t('cacheWarnHint')
+      : t('cacheTtlHint', s.ttlMinutes);
   return `
     <div class="row">
       <div class="row-top">
@@ -168,9 +179,10 @@ function cacheRowHtml(s) {
     </div>`;
 }
 
+// reason -> message key in _locales
 const CACHE_HINT = {
-  'no-host': 'Para ver el caché de Claude Code, instala Guardian en este equipo (node bin/install.js) y reinicia el navegador.',
-  'host-error': 'Guardian no pudo leer el caché de Claude Code.',
+  'no-host': 'hintNoHost',
+  'host-error': 'hintHostError',
 };
 
 function renderCache(c) {
@@ -181,9 +193,9 @@ function renderCache(c) {
     return;
   }
   if (!c.ok) {
-    rows.innerHTML = `<div class="row-reset">${escapeHtml(CACHE_HINT[c.reason] || CACHE_HINT['host-error'])}</div>`;
+    rows.innerHTML = `<div class="row-reset">${escapeHtml(t(CACHE_HINT[c.reason] || CACHE_HINT['host-error']))}</div>`;
   } else if (c.sessions.length === 0) {
-    rows.innerHTML = '<div class="row-reset">Ninguna sesión de Claude Code tiene el caché vivo ahora.</div>';
+    rows.innerHTML = `<div class="row-reset">${escapeHtml(t('cacheEmpty'))}</div>`;
   } else {
     rows.innerHTML = c.sessions.map(cacheRowHtml).join('');
   }

@@ -70,10 +70,10 @@ The idea came from a "token-saving kit" shared as an artifact. I audited it, kep
 | Where | What you see | How it turns on |
 |---|---|---|
 | **Status line** | `cache 42m`, `cache 3m!` at 5 minutes or less, `cache expired` | Guardian's own line, when the installer could claim the `statusLine` slot (refreshes every 30 s) |
-| **Bar above the prompt** | Live cache, context, 5h, week, a **Traspaso** (handoff) button and then **Limpiar y seguir** (clear and continue) | `node bin/install.js` turns it on; as a plugin: `quota-guardian-bar` |
+| **Bar above the prompt** | Live cache, context, 5h, week, a **Handoff** button and then **Clear and continue** | `node bin/install.js` turns it on; as a plugin: `quota-guardian-bar` |
 | **Browser extension** | One row per Claude Code session with a live cache, named after its project, with the minutes left | `node bin/install.js` registers the local bridge; reload the extension |
 
-The bar and the extension speak Spanish today, like Guardian's other messages.
+The bar and the extension speak English or Spanish: the extension follows your browser's language, the bar your system's (`LC_ALL`/`LANG`, or the OS locale on Windows). Guardian's other messages are still in Spanish.
 
 ## Browser extension (usage monitor)
 
@@ -105,7 +105,7 @@ Install: `chrome://extensions` → Developer mode → **Load unpacked** → the 
 - **Works on any plan and any OS**: auto-detects only the installing user's quota (Pro/Max/Team) by reading Claude Code's OAuth token — a file on Windows/Linux, the **Keychain on macOS**.
 - **Visual monitor**: browser extension with badge + popup (above).
 - **One-command install, clean uninstall**: merges its hooks into `settings.json` without touching yours; the uninstaller only removes its own.
-- **423 tests**: 397 with `npm test`, run in CI on Windows, macOS and Linux across Node 18 and 20, and 26 for the bar with `claude plugin test bar`.
+- **433 tests**: 402 with `npm test`, run in CI on Windows, macOS and Linux across Node 18 and 20, and 31 for the bar with `claude plugin test bar`.
 - **Extensible to other AI providers**: adapter architecture; ships with notify-only monitoring of **OpenAI Codex CLI** today.
 
 ## Who is it for?

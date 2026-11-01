@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="stylesheet" href="popup.css" />
-  <title>Guardian — consumo de Claude</title>
+  <title data-i18n="actionTitle"></title>
 </head>
 <body>
   <header>
@@ -13,29 +13,29 @@
       <h1>Quota Guardian</h1>
       <span id="plan" class="plan"></span>
     </div>
-    <button id="refresh" title="Actualizar" aria-label="Actualizar">⟳</button>
+    <button id="refresh" data-i18n-label="refresh">⟳</button>
   </header>
 
   <main id="content">
-    <div id="status" class="status">Cargando…</div>
+    <div id="status" class="status" data-i18n="loading"></div>
     <section id="blocking" class="group"></section>
     <section id="scoped" class="group scoped-group" hidden>
-      <div class="group-label">Por modelo · solo aviso</div>
+      <div class="group-label" data-i18n="scopedLabel"></div>
       <div id="scoped-rows"></div>
     </section>
     <section id="credits" class="group scoped-group" hidden>
-      <div class="group-label">Créditos en dólares · no cuentan para tu plan</div>
+      <div class="group-label" data-i18n="creditsLabel"></div>
       <div id="credit-rows"></div>
     </section>
     <section id="cache" class="group scoped-group" hidden>
-      <div class="group-label">Caché de Claude Code · si vence, el siguiente mensaje cuesta todo el contexto</div>
+      <div class="group-label" data-i18n="cacheLabel"></div>
       <div id="cache-rows"></div>
     </section>
   </main>
 
   <footer>
     <span id="updated" class="updated"></span>
-    <a href="https://claude.ai/settings/usage" target="_blank" rel="noopener">Abrir en Claude ↗</a>
+    <a href="https://claude.ai/settings/usage" target="_blank" rel="noopener" data-i18n="openClaude"></a>
   </footer>
 
   <script src="lib/usage.js"></script>

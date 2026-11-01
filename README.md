@@ -73,6 +73,8 @@ La idea me llegó de un "kit de ahorro de tokens" que circulaba como artifact. L
 | **Barra encima del prompt** | Caché en vivo, contexto, 5 h, semana, botón **Traspaso** y luego **Limpiar y seguir** | `node bin/install.js` la activa sola; como plugin: `quota-guardian-bar` |
 | **Extensión del navegador** | Una fila por cada sesión de Claude Code con el caché vivo, con el nombre de su proyecto y los minutos que quedan | `node bin/install.js` registra el puente local; recarga la extensión |
 
+La barra y la extensión hablan español o inglés: la extensión sigue el idioma de tu navegador y la barra el de tu sistema (`LC_ALL`/`LANG`, o el idioma de Windows). Los demás mensajes de Guardian siguen en español.
+
 ## Extensión de navegador (monitor de consumo)
 
 En `extension/` hay una extensión **Manifest V3** (Chrome/Edge/Brave) para **ver tu consumo en vivo** sin abrir Ajustes:
@@ -103,7 +105,7 @@ Instalar: `chrome://extensions` → Modo desarrollador → **Cargar descomprimid
 - **Funciona para cualquier plan y cualquier OS**: detecta solo la cuota de quien lo instale (Pro/Max/Team) leyendo el token OAuth de Claude Code — archivo en Windows/Linux, **Keychain en macOS**.
 - **Monitor visual**: extensión de navegador con badge + popup + caché de cada sesión (arriba).
 - **Instalación de 1 comando, desinstalación limpia**: mergea sus hooks en `settings.json` sin tocar los tuyos; el uninstaller solo quita lo suyo.
-- **423 tests**: 397 con `npm test`, que corren en CI en Windows, macOS y Linux sobre Node 18 y 20, y 26 de la barra con `claude plugin test bar`.
+- **433 tests**: 402 con `npm test`, que corren en CI en Windows, macOS y Linux sobre Node 18 y 20, y 31 de la barra con `claude plugin test bar`.
 - **Extensible a otros proveedores de IA**: arquitectura de adaptadores; hoy incluye monitoreo notify-only de **OpenAI Codex CLI**.
 
 ## ¿Para quién es?

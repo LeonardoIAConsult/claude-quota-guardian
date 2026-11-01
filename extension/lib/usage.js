@@ -15,6 +15,24 @@
   // claude.ai can hang; without a limit the popup spins forever on "Cargando…".
   const FETCH_TIMEOUT_MS = 10000;
 
+  // Texts live in _locales/<lang>/messages.json. In the browser chrome.i18n
+  // picks the language; in Node (no `chrome`) the tests hand one language's
+  // messages.json to setMessages() and t() reads it, placeholders included.
+  let messages = null;
+
+  function setMessages(json) {
+    messages = json || null;
+  }
+
+  function t(key, ...subs) {
+    if (!messages) return chrome.i18n.getMessage(key, subs.map(String));
+    const m = messages[key];
+    if (!m) return '';
+    let text = m.message;
+    for (const [name, p] of Object.entries(m.placeholders || {})) text = text.replaceAll(`$${name}$`, p.content);
+    return text.replace(/\$(\d)/g, (_, n) => (subs[n - 1] === undefined ? '' : String(subs[n - 1])));
+  }
+
   function get(url) {
     const opts = { credentials: 'include' };
     if (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) opts.signal = AbortSignal.timeout(FETCH_TIMEOUT_MS);
@@ -67,16 +85,16 @@
         const surface = l.scope && l.scope.surface && (l.scope.surface.display_name || l.scope.surface.id);
         const scoped = Boolean(model || surface);
         let label = model || surface || l.kind;
-        if (!scoped && l.kind === 'session') label = 'Sesión';
-        else if (!scoped && l.kind.startsWith('weekly')) label = 'Semanal';
+        if (!scoped && l.kind === 'session') label = t('winSession');
+        else if (!scoped && l.kind.startsWith('weekly')) label = t('winWeekly');
         push(l.kind, label, l.percent, l.resets_at, !scoped, model);
       }
     }
 
     // Fallback for a response shape without limits[].
     if (!windows.length && raw) {
-      if (raw.five_hour) push('session', 'Sesión', raw.five_hour.utilization, raw.five_hour.resets_at, true);
-      if (raw.seven_day) push('weekly_all', 'Semanal', raw.seven_day.utilization, raw.seven_day.resets_at, true);
+      if (raw.five_hour) push('session', t('winSession'), raw.five_hour.utilization, raw.five_hour.resets_at, true);
+      if (raw.seven_day) push('weekly_all', t('winWeekly'), raw.seven_day.utilization, raw.seven_day.resets_at, true);
     }
     return windows;
   }
@@ -85,7 +103,7 @@
   // under internal codenames that can change, so they are recognized by SHAPE
   // (positive limit_dollars + numeric used/remaining), never by name. Mirrors
   // creditsFrom() in lib/usage-api.js. Informational only: never in the badge.
-  const CREDIT_LABELS = { iguana_necktie: 'Crédito nube' };
+  const CREDIT_LABELS = { iguana_necktie: 'creditCloud' };
 
   function num(x) {
     return typeof x === 'number' && Number.isFinite(x) ? x : null;
@@ -105,7 +123,7 @@
       if (remaining === null) remaining = limit - used;
       credits.push({
         key,
-        label: Object.hasOwn(CREDIT_LABELS, key) ? CREDIT_LABELS[key] : 'Crédito promocional',
+        label: t(Object.hasOwn(CREDIT_LABELS, key) ? CREDIT_LABELS[key] : 'creditPromo'),
         limit,
         used: Math.max(0, used),
         remaining: Math.max(0, remaining),
@@ -165,8 +183,8 @@
   // A window whose reset time already passed no longer holds its old % -- the
   // next reading brings the new one. Showing the old % as current is the lie.
   function isRolledOver(w, now) {
-    const t = w && w.resetAt ? Date.parse(w.resetAt) : NaN;
-    return Number.isFinite(t) && t <= now;
+    const at = w && w.resetAt ? Date.parse(w.resetAt) : NaN;
+    return Number.isFinite(at) && at <= now;
   }
 
   function shortTime(ts) {
@@ -175,14 +193,14 @@
   }
 
   function fmtLeft(iso, now) {
-    const t = Date.parse(iso);
-    if (!Number.isFinite(t)) return '';
-    const mins = Math.round((t - now) / 60000);
-    if (mins <= 0) return 'reiniciada';
-    if (mins < 60) return `reinicia en ${mins} min`;
+    const at = Date.parse(iso);
+    if (!Number.isFinite(at)) return '';
+    const mins = Math.round((at - now) / 60000);
+    if (mins <= 0) return t('resetDone');
+    if (mins < 60) return t('resetInMin', mins);
     const hrs = Math.floor(mins / 60);
-    if (hrs < 24) return `reinicia en ${hrs} h ${mins % 60} min`;
-    return `reinicia en ${Math.round(hrs / 24)} d`;
+    if (hrs < 24) return t('resetInHrMin', hrs, mins % 60);
+    return t('resetInDays', Math.round(hrs / 24));
   }
 
   // The toolbar badge: the % of the most-pressing window, and in the tooltip
@@ -195,19 +213,19 @@
   const GREY = '#6b6b6b';
 
   function badgeFor(good, error, now) {
-    const t = now || Date.now();
+    const nowMs = now || Date.now();
     if (!good || !good.ok || !Array.isArray(good.blocking) || !good.blocking.length) {
       return { text: error ? '!' : '', color: GREY, title: `Guardian: ${reasonText(error || 'no-windows')}` };
     }
-    const live = good.blocking.filter((w) => !isRolledOver(w, t));
-    const parts = good.blocking.map((w) => (isRolledOver(w, t)
-      ? `${w.label}: reiniciada, actualizando…`
-      : `${w.label} ${Math.round(w.pct)} %${w.resetAt ? ` (${fmtLeft(w.resetAt, t)})` : ''}`));
-    for (const w of good.scoped || []) parts.push(`${w.label} ${Math.round(w.pct)} %`);
-    const stamp = good.fetchedAt ? `actualizado ${shortTime(good.fetchedAt)}` : '';
-    const stale = error ? ` · sin actualizar: ${reasonText(error)}` : '';
+    const live = good.blocking.filter((w) => !isRolledOver(w, nowMs));
+    const parts = good.blocking.map((w) => (isRolledOver(w, nowMs)
+      ? t('tipRolled', w.label)
+      : `${w.label} ${t('pct', Math.round(w.pct))}${w.resetAt ? ` (${fmtLeft(w.resetAt, nowMs)})` : ''}`));
+    for (const w of good.scoped || []) parts.push(`${w.label} ${t('pct', Math.round(w.pct))}`);
+    const stamp = good.fetchedAt ? t('tipUpdated', shortTime(good.fetchedAt)) : '';
+    const stale = error ? ` · ${t('tipStale', reasonText(error))}` : '';
     const top = live.length ? live.reduce((a, b) => (b.pct > a.pct ? b : a)) : null;
-    const lead = top ? `el número es ${top.label}` : 'todas reiniciadas';
+    const lead = top ? t('tipLead', top.label) : t('tipAllReset');
     const title = `Guardian (${lead}) · ${parts.join(' · ')}${stamp ? ` · ${stamp}` : ''}${stale}`;
     if (!top) return { text: '…', color: GREY, title };
     const p = Math.min(100, Math.round(top.pct));
@@ -215,23 +233,24 @@
     return { text: `${p}%`, color, title };
   }
 
+  // reason -> message key in _locales
   const REASON_TEXT = {
-    'not-logged-in': 'Inicia sesión en claude.ai para ver tu consumo.',
-    'network': 'Sin conexión con claude.ai.',
-    'no-org': 'No se encontró tu cuenta.',
-    'no-windows': 'Claude no devolvió datos de cuota.',
-    'bad-json': 'Respuesta inesperada de Claude.',
-    'worker-error': 'No se pudo leer el consumo.',
+    'not-logged-in': 'reasonNotLoggedIn',
+    'network': 'reasonNetwork',
+    'no-org': 'reasonNoOrg',
+    'no-windows': 'reasonNoWindows',
+    'bad-json': 'reasonBadJson',
+    'worker-error': 'reasonWorkerError',
   };
 
   function reasonText(reason) {
     const r = reason || 'unknown';
-    if (Object.hasOwn(REASON_TEXT, r)) return REASON_TEXT[r];
-    return r.startsWith('http-') ? `Claude respondió con error (${r.slice(5)}).` : 'No se pudo leer el consumo.';
+    if (Object.hasOwn(REASON_TEXT, r)) return t(REASON_TEXT[r]);
+    return r.startsWith('http-') ? t('reasonHttp', r.slice(5)) : t('reasonWorkerError');
   }
 
   root.GuardianUsage = {
     fetchUsage, getOrgId, getOrgIds, windowsFrom, creditsFrom, clampPct,
-    isRolledOver, badgeFor, reasonText, fmtLeft,
+    isRolledOver, badgeFor, reasonText, fmtLeft, t, setMessages,
   };
 })(typeof self !== 'undefined' ? self : globalThis);
